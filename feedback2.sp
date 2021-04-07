@@ -43,7 +43,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.2"
+#define PLUGIN_VERSION "0.0.3"
 
 //we might not need all these includes. But i dont know where this project is going so: Here they are!
 #include <sourcemod>
@@ -57,6 +57,10 @@
 #define BoolValue_False 0
 #define BoolValue_True 1
 #define BoolValue_Null -1
+
+//Sounds
+#define SOUND_HINTSOUND "/ui/hint.wav"
+#define SOUND_WARNSOUND "/ui/system_message_alert.wav"
 
 
 /*
@@ -165,6 +169,10 @@ public void OnPluginStart()
 	
 	//When players try to force a ready up
 	HookEvent("tournament_stateupdate", Event_Tournament_Ready);
+	//OnBuild
+	//TODO: Find a clean way to disable players collisions with buildings.
+	//Buildings have "SolidToPlayer" input and "m_SolidToPlayers" propdata, but they dont respond at all.
+	//HookEvent("player_builtobject", Event_Object_Built);
 	
 
 	
@@ -172,13 +180,19 @@ public void OnPluginStart()
 	feedbackHUD = CreateHudSynchronizer();
 	
 	//Commands
-	RegAdminCmd("sm_fbround_enable", Command_FB_Round_Enabled, ADMFLAG_KICK, "Enable or disable FB rounds [TRUE/FALSE][1/0][YES/NO]");
-	RegAdminCmd("sm_fbnextround", Command_Fb_Next_Round, ADMFLAG_KICK, "Force FB round after this round [TRUE/FALSE][1/0][YES/NO]");
+	RegAdminCmd("sm_fbround", Command_FB_Round_Enabled, ADMFLAG_KICK, "Enable or disable FB rounds [TRUE/FALSE][1/0][YES/NO]");
+	RegAdminCmd("sm_fbnextround", Command_Fb_Next_RoundToggle, ADMFLAG_KICK, "Force FB round after this round [TRUE/FALSE][1/0][YES/NO]");
+	
+	
 	RegAdminCmd("sm_fbround_forceend", Command_Fb_Cancel_Round, ADMFLAG_KICK, "Enforce the death of an fb round");
-	RegAdminCmd("sm_fbtimer", Command_Fb_AddTime, ADMFLAG_KICK, "<Add/Set> <Time in seconds> (ONLY CAN BE USED MID FB ROUND!!!)");
+	RegAdminCmd("sm_fbtimer", Command_Fb_AddTime, ADMFLAG_KICK, "<Add/Set> <Time in minutes> (ONLY CAN BE USED MID FB ROUND!!!)");
+	
+	
 	RegAdminCmd("sm_fbopenalldoors", Command_Fb_OpenDoors, ADMFLAG_KICK, "Forces all doors to unlock and open.");
 	RegConsoleCmd("sm_fbtellents", Command_ReturnEdicts,"Returns edict number.");
-	RegConsoleCmd("fb_spawns", Menu_Test1);
+	RegConsoleCmd("sm_fbspawn", Menu_SpawnTest, "Jump to a spawn point on the map.");
+	RegConsoleCmd("sm_fbspawns", Menu_SpawnTest, "Jump to a spawn point on the map.");
+	RegConsoleCmd("sm_fbround_help", Command_FBround_Help, "Tellme tellme.");
 	
 	cvarList[Version] = CreateConVar("fb2_version", PLUGIN_VERSION, "FB2 Version. DO NOT CHANGE THIS!!! READ ONLY!!!!", FCVAR_NOTIFY|FCVAR_DONTRECORD|FCVAR_CHEAT);
 	cvarList[FB_CVAR_ALLOTED_TIME] = CreateConVar("fb2_time", "120" , "How Long should the timer last? (In seconds)", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
@@ -190,6 +204,13 @@ public void OnPluginStart()
 	SpawnPointEntIDs = new ArrayList(4);
 	
 	PopulateSpawnList();
+	
+}
+public OnConfigsExecuted()
+{
+	//Precache
+	PrecacheSound(SOUND_WARNSOUND,true);
+	PrecacheSound(SOUND_HINTSOUND,true);
 }
 /*
 	Use: On player spawn
@@ -292,6 +313,7 @@ public Action ResetTimeLimit(Handle timer, any serial)
 public void OnMapEnd()
 {
 	IsTestModeTriggered = false;
+	ForceNextRoundTest = false;
 	FeedbackTimer = -1;
 	CleanUpTimer();//Just in case.
 	CreateTimer(0.0,ResetTimeLimit);//UNDO MAPCHANGE BLOCK
@@ -356,10 +378,9 @@ int ReturnExpectedDowntime()
 		Get pipes and destroy them.
 */
 public OnEntityCreated(entity, const String:classname[])
-{
+{		
 	if(!IsTestModeTriggered)//only run during fb round.
 		return;
-		
 	if(StrEqual(classname, "tf_projectile_pipe"))
 	{
 		SDKHook(entity, SDKHook_SpawnPost, Pipe_Spawned_post);
@@ -415,7 +436,8 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		return;
 	CreateTimer(1.0,ResetTimeLimit);//Remove tournament
 	
-	CPrintToChatAll("{gold}[Feedback]{default} ~ Feedback round started: !fbhelp for more info");//Tell everyone about test mode.
+	//Really? no multi like strings?
+	CPrintToChatAll("\n\n ------------------------ \n{gold}[Feedback]{default} ~ Feedback round started: !fbround_help for more info\n\n {gold}>{default}You cannot kill anyone\n {gold}>{default}Leave as much feedback as possible.\n  ------------------------");//Tell everyone about test mode.
 	
 	//Set timer
 	FeedbackTimer = cvarList[FB_CVAR_ALLOTED_TIME].IntValue;//Read the cvar and set the timer to the cvartime.
@@ -516,6 +538,22 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		AcceptEntityInput(ent, "FireUser1");//Swing
 		*/
 	}
+	ent = -1;
+	while ((ent = FindEntityByClassname(ent, "tf_logic_player_destruction")) != -1)//Find and kill the pass logic
+	{
+		AcceptEntityInput(ent,"Kill");
+	}
+	ent = -1;
+	while ((ent = FindEntityByClassname(ent, "team_round_timer")) != -1)//Pause round timers.
+	{
+		AcceptEntityInput(ent,"Pause");
+		AcceptEntityInput(ent,"ShowInHUD 0");
+	}
+	
+	
+	
+	
+	
 	/* Force respawn everyone, Under the force next round condition: Players will not spawn properly! This is a bodge to get around that xdd */
 	for(int ic = 1; ic < MaxClients; ic++)
 	{
@@ -545,6 +583,17 @@ public Action CountdownTimer(Handle timer, any serial)
 		}
 	}
 	/*Timer stuff*/
+	if(FeedbackTimer == 30)
+	{
+		CPrintToChatAll("{gold}[Feedback]{default} ~ 30 seconds remaining!");//Tell users time is near an end
+		EmitSoundToAll(SOUND_WARNSOUND, _, _, SNDLEVEL_DRYER, _, SNDVOL_NORMAL, _, _, _, _, _, _); 
+	}
+	if(FeedbackTimer < 10 && FeedbackTimer >= 0)//Hint the last 10 seconds.
+	{
+		EmitSoundToAll(SOUND_HINTSOUND, _, _, SNDLEVEL_DRYER, _, SNDVOL_NORMAL, _, _, _, _, _, _); 
+	}
+	
+	
 	if(FeedbackTimer == 0)
 	{
 		if(GetMapTimeLeftInt() <= 0)//time expired, nextmap.
@@ -614,6 +663,26 @@ void UpdateHud(client)
 		//Can cause error if i remember correctly.
 	SetHudTextParams(-1.0, 0.80, 1.25, 144, 233, 64, 255); //Vsh hud location
 	ShowSyncHudText(client, feedbackHUD, "| Time left %s |", CurrentTime());//Current time is below, Super suspect thing i wrote like 2 years ago lol.
+}
+public OnClientDisconnect(int client)
+{
+	int countplayers = 0;
+	for(int iClient = 1; iClient <= MaxClients; iClient++)
+	{
+		if(IsValidClient(iClient))//Real players
+		{
+			if(!IsFakeClient(iClient))//VERY REAL PLAYERS
+			{
+				countplayers++;
+			}
+		}
+	}
+	if(countplayers <= 0)
+	{
+		FeedbackModeActive = false;
+		ForceNextRoundTest = false;
+		
+	}
 }
 /*
 	Use: Countdown timer from microwave seconds to human seconds.
@@ -689,12 +758,23 @@ void RespondToAdminCMD(client, String:StringText[])
 	if(IsValidClient(client))
 		CPrintToChat(client, "{gold}[Feedback]{default} | To you | %s", StringText);//Respond to ingame client
 }
-public Action:Command_Fb_Next_Round(int client, int args)
+public Action:Command_Fb_Next_RoundToggle(int client, int args)
 {
+	LogAction(client,-1,"%n Called FB Nextround",client);
 	if (args < 1)
 	{
-		//Show ingame and to the server client
-		RespondToAdminCMD(client,"Usage: fb_round [TRUE/FALSE][1/0][YES/NO]");
+		//Flip the bool.
+		ForceNextRoundTest = !ForceNextRoundTest;
+		
+		if(ForceNextRoundTest)//return to player
+		{
+			RespondToAdminCMD(client, "Lining up next round to be FB Round.");
+		}
+		else
+		{
+			RespondToAdminCMD(client, "Scrapped queued test round.");
+		}
+		
 		return Plugin_Handled;
 	}
 	
@@ -736,10 +816,23 @@ public Action:Command_Fb_Next_Round(int client, int args)
 }
 public Action:Command_FB_Round_Enabled(int client, int args)
 {
-	if (args < 1)
+	//We should probbably call this later, then say "Toggled on/off"
+	LogAction(client,-1,"%n Called FB Round toggle",client);
+
+	if (args < 1)//CALLED TOGGLE
 	{
-		//Show ingame and to the server client
-		RespondToAdminCMD(client,"Usage: sm_fb_round_enable [TRUE/FALSE][1/0][YES/NO]");
+		//Flip the bool.
+		FeedbackModeActive = !FeedbackModeActive;
+		
+		if(FeedbackModeActive)//return to player
+		{
+			RespondToAdminCMD(client, "Enabled! All last game rounds past this point will be fb rounds.");
+		}
+		else
+		{
+			RespondToAdminCMD(client, "Disabled! All last game rounds past this point will NOT be fb rounds. Repeat will NOT be!");
+		}
+		
 		return Plugin_Handled;
 	}
 	
@@ -791,6 +884,9 @@ public Action:Command_Fb_AddTime(int client, int args)
 		RespondToAdminCMD(client, "You can only use this command while an FB round is active.");
 		return Plugin_Handled;
 	}
+	
+	LogAction(client,-1,"%n Changed the FBRound timer.",client);
+	
 	/*		Get ARGS me m8ty		*/	
 	//get classification
 	char test_arg_class[32];
@@ -799,6 +895,7 @@ public Action:Command_Fb_AddTime(int client, int args)
 	char test_arg[32];
 	GetCmdArg(2, test_arg, sizeof(test_arg));
 	int time = StringToInt(test_arg);
+	time *= 60;//Scale to minutes.
 
 	switch(time)//egg
 	{
@@ -827,6 +924,7 @@ public Action:Command_Fb_AddTime(int client, int args)
 }
 public Action:Command_Fb_Cancel_Round(int client, int args)
 {
+	LogAction(client,-1,"%n Skipped the FB round.",client);
 	if(IsTestModeTriggered)
 	{
 		RespondToAdminCMD(client, "Skipping FB round.");
@@ -839,10 +937,12 @@ public Action:Command_Fb_Cancel_Round(int client, int args)
 }
 public Action:Command_ReturnEdicts(int client, int args)
 {
+	LogAction(client,-1,"%n Asked for edicts.",client);
 	CReplyToCommand(client, "{gold}[Feedback]{default} There are %i edicts on the level.", GetEntityCount());
 }
 public Action:Command_Fb_OpenDoors(int client, int args)
 {
+	LogAction(client,-1,"%n Opened all doors.",client);
 	int DoorsOpened = 0;
 	new ent = -1;//Open all doors.
 	while ((ent = FindEntityByClassname(ent, "func_door")) != -1)
@@ -861,7 +961,7 @@ public int MenuHandler1(Menu menu, MenuAction action, int param1, int param2)
     if (action == MenuAction_Select)
     {
 		char info[32];
-		bool found = menu.GetItem(param2, info, sizeof(info));
+		menu.GetItem(param2, info, sizeof(info));
 		//PrintToConsole(param1, "You selected spawn: %d (found? %d info: %s)", param2, found, info);
 
 		//PARAM 1 IS CLIENT!!!
@@ -886,17 +986,24 @@ public int MenuHandler1(Menu menu, MenuAction action, int param1, int param2)
         delete menu;
     }
 }
-
-public Action Menu_Test1(int client, int args)
+public Action Command_FBround_Help(int client, int args)
 {
+	if(IsValidClient(client))
+	{
+		CPrintToChat(client, "---------{gold}[Feedback Help]{default}---------\n {gold}Commands{default} : \n >fbspawn | Teleport to a list of unique spawn locations. \n >fbtellents | Print map edict count.");
+	}
+}
+public Action Menu_SpawnTest(int client, int args)
+{
+	LogAction(client,-1,"%n Asked for spawnpoints",client);
 	if(IsTestModeTriggered)
 	{
-	//ONLY FOR DEBUGGING. THE ARRAY SHOULD BE CREATED ON PLUGIN START.
-	#if defined DEBUG
-		PopulateSpawnList();
-	#endif
-	
-	ShowClientTPPage(client);//Load page
+		//ONLY FOR DEBUGGING. THE ARRAY SHOULD BE CREATED ON PLUGIN START.
+		#if defined DEBUG
+			PopulateSpawnList();
+		#endif
+		
+		ShowClientTPPage(client);//Load page
 	}
 	else
 	{
@@ -960,5 +1067,4 @@ void PopulateSpawnList()
 			PushArrayString(SpawnPointEntIDs, entstring);
 		}
 	}
-	
 }
