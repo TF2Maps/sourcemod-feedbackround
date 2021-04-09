@@ -1,8 +1,21 @@
 # TF2M-feedbackround-plugin
 Feedback round plugin developed for TF2Maps by PigPig.
 
-## Commands:
+## Cvars:
+`fb2_version`
+        -READ ONLY. PLUGIN VERSION.
+        
+`fb2_time` <default 120>
+        -How long should a FB round lasts by default (In Seconds)
+        
+`fb2_triggertime` <default 300>
+        -If the maps timeleft is less than this number in seconds, trigger last round fb.
+        
+ `fb2_mapcontrol` <default 1> <1/0> 
+        -Can maps control when fb last round occurs?
 
+## Commands:
+        
 ### Admin commands
 
 `sm_fbround`
@@ -21,9 +34,12 @@ Feedback round plugin developed for TF2Maps by PigPig.
 `sm_fbopenalldoors`
         - Find all "Func_door"s, unlocks and opens them.
 
-### Normie commands
+### Normal commands
 `sm_fbtellents`
         - Returns the edict count to the player.
 
 `fb_spawn(s)`
         - During a feedback round, the player can teleport to all unique spawn names.
+
+`sm_fbrh`
+        - Help menu for normal players 
