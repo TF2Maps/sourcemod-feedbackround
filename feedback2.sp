@@ -10,6 +10,9 @@
 					>set : set time in seconds
 		Cvars:
 			fb2_timer : How long these rounds should be by default. (DEFAULT: 2 MINUTES)
+			fb2_triggertime : How long till map end should we trigger last round fb round.
+			fb2_mapcontrol : Can maps call FB rounds on last round?
+			
 			
 			
 	TODOs:
@@ -43,7 +46,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.3"
+#define PLUGIN_VERSION "0.0.4"
 
 //we might not need all these includes. But i dont know where this project is going so: Here they are!
 #include <sourcemod>
@@ -61,6 +64,9 @@
 //Sounds
 #define SOUND_HINTSOUND "/ui/hint.wav"
 #define SOUND_WARNSOUND "/ui/system_message_alert.wav"
+#define SOUND_QUACK "ambient/bumper_car_quack1.wav"
+
+//#define EndRoundDraw
 
 
 /*
@@ -108,6 +114,7 @@ enum
 {
 	FB_CVAR_ALLOTED_TIME,
 	FB_CVAR_DOWNTIME_FORCEFB,
+	FB_CVAR_ALLOWMAP_SETTINGS,
 	Version
 }
 ConVar cvarList[Version + 1];
@@ -117,6 +124,9 @@ ArrayList SpawnPointNames;
 ArrayList SpawnPointEntIDs;
 
 TFCond AppliedUber = TFCond:51;
+
+//-1 is default
+int MapTimeStorage = -1;
 
 enum CollisionGroup
 {
@@ -192,12 +202,15 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_fbtellents", Command_ReturnEdicts,"Returns edict number.");
 	RegConsoleCmd("sm_fbspawn", Menu_SpawnTest, "Jump to a spawn point on the map.");
 	RegConsoleCmd("sm_fbspawns", Menu_SpawnTest, "Jump to a spawn point on the map.");
-	RegConsoleCmd("sm_fbround_help", Command_FBround_Help, "Tellme tellme.");
+	RegConsoleCmd("sm_fbrh", Command_FBround_Help, "Tellme tellme.");
+	#if defined DEBUG
+	RegConsoleCmd("sm_fbquack", Command_FBQuack, "The characteristic harsh sound made by a duck");
+	#endif
 	
 	cvarList[Version] = CreateConVar("fb2_version", PLUGIN_VERSION, "FB2 Version. DO NOT CHANGE THIS!!! READ ONLY!!!!", FCVAR_NOTIFY|FCVAR_DONTRECORD|FCVAR_CHEAT);
 	cvarList[FB_CVAR_ALLOTED_TIME] = CreateConVar("fb2_time", "120" , "How Long should the timer last? (In seconds)", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
 	cvarList[FB_CVAR_DOWNTIME_FORCEFB] = CreateConVar("fb2_triggertime", "300" , "How many seconds left should we trigger an expected map end.", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
-	
+	cvarList[FB_CVAR_ALLOWMAP_SETTINGS] = CreateConVar("fb2_mapcontrol", "1" , "How much control do we give maps over our plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);//false,true.
 	
 	//instantiate arrays
 	SpawnPointNames = new ArrayList(512);
@@ -211,6 +224,7 @@ public OnConfigsExecuted()
 	//Precache
 	PrecacheSound(SOUND_WARNSOUND,true);
 	PrecacheSound(SOUND_HINTSOUND,true);
+	PrecacheSound(SOUND_QUACK,true);
 }
 /*
 	Use: On player spawn
@@ -314,7 +328,9 @@ public void OnMapEnd()
 {
 	IsTestModeTriggered = false;
 	ForceNextRoundTest = false;
+	//Reset these to -1.
 	FeedbackTimer = -1;
+	MapTimeStorage = -1;
 	CleanUpTimer();//Just in case.
 	CreateTimer(0.0,ResetTimeLimit);//UNDO MAPCHANGE BLOCK
 	ClearSpawnPointsArray();
@@ -342,6 +358,27 @@ int GetMapTimeLeftInt()
 	return timeleft;
 }
 /*
+	Use: Get if the map has an info_target with the name of 'TF2M_ForceLastRoundFeedback'
+		This allows mappers to splurge for fb rounds without saying a word, at the cost of 0 edicts?
+		Im pretty sure info target isn't a networked entity...
+*/
+bool GetMapForceFeedbackLastRound()
+{
+	bool IsMapFBmap = false;
+	if(cvarList[FB_CVAR_ALLOWMAP_SETTINGS].IntValue <= 0)
+		return false;//Stop, we are false.
+	
+	new ent = -1;
+	while ((ent = FindEntityByClassname(ent, "info_target")) != -1)
+	{
+		decl String:entName[50];
+		GetEntPropString(ent, Prop_Data, "m_iName", entName, sizeof(entName));//Get ent name.
+		if(StrEqual(entName, "TF2M_ForceLastRoundFeedback",true))//true, we care about caps.
+			IsMapFBmap = true;
+	}
+	return IsMapFBmap;
+}
+/*
 	Use: When a round is won or stalemated
 		Check how many seconds are left on this map.
 		If the time is less than 25 seconds, enter feedback mode
@@ -350,11 +387,12 @@ int GetMapTimeLeftInt()
 */
 public Action:Event_Round_End(Handle:event,const String:name[],bool:dontBroadcast)
 {
-	if(!FeedbackModeActive && !ForceNextRoundTest)//If FB mode is not active, stop.
-		return;
-		
-	//PopulateSpawnList();
-		
+	if(!GetMapForceFeedbackLastRound())//if we dont find a map forced round,
+	{
+		if(!FeedbackModeActive && !ForceNextRoundTest)//If FB mode is not active, stop.
+			return;
+	}
+	
 	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || ForceNextRoundTest)//25 seconds left or next round is a forced test.
 	{
 		CPrintToChatAll("{gold}[Feedback]{default} ~ Feedback round triggered");//Tell users in chat it has been triggered
@@ -426,6 +464,15 @@ public SetCVAR_SILENT(String:CVAR_NAME[], int INTSET)
 */
 public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadcast)
 {
+	if(MapTimeStorage != -1)//if there is a map time stored.
+	{
+		int MapTimeDistance = MapTimeStorage - GetMapTimeLeftInt();
+		//This only adds time or subtracts. We read our new time and how far it is from what we want, then set accordingly.
+		ExtendMapTimeLimit(MapTimeDistance);//This prints "mp_timelimit" in chat, Why?
+		MapTimeStorage = -1;
+	}
+
+
 	if(ForceNextRoundTest)
 	{
 		IsTestModeTriggered = true;
@@ -437,7 +484,7 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	CreateTimer(1.0,ResetTimeLimit);//Remove tournament
 	
 	//Really? no multi like strings?
-	CPrintToChatAll("\n\n ------------------------ \n{gold}[Feedback]{default} ~ Feedback round started: !fbround_help for more info\n\n {gold}>{default}You cannot kill anyone\n {gold}>{default}Leave as much feedback as possible.\n  ------------------------");//Tell everyone about test mode.
+	CPrintToChatAll("\n\n ------------------------ \n{gold}[Feedback]{default} ~ Feedback round started: !sm_fbrh for more info\n\n {gold}>{default}You cannot kill anyone\n {gold}>{default}Leave as much feedback as possible.\n  ------------------------");//Tell everyone about test mode.
 	
 	//Set timer
 	FeedbackTimer = cvarList[FB_CVAR_ALLOTED_TIME].IntValue;//Read the cvar and set the timer to the cvartime.
@@ -627,8 +674,19 @@ void FeedbackTimerExpired()
 	}
 	else
 	{
-		CPrintToChatAll("{gold}[Feedback]{default} ~ FB Round END");//Tell users time has expired
-		ServerCommand("mp_restartgame 1");//Reload map
+		CPrintToChatAll("{gold}[Feedback]{default} ~ FB Round ended");//Tell users time has expired
+		//Uncomment EndRoundDraw if you want the end of a feedback round that has occured midgame to end in a draw.
+		#if defined EndRoundDraw
+			new entRoundWin = CreateEntityByName("game_round_win");
+			DispatchKeyValue(entRoundWin, "force_map_reset", "1");
+			DispatchSpawn(entRoundWin);
+			SetVariantInt(0);//Spectate wins! Wait, Noone wins.
+			AcceptEntityInput(entRoundWin, "SetTeam");
+			AcceptEntityInput(entRoundWin, "RoundWin");
+		#else
+			MapTimeStorage = GetMapTimeLeftInt();//Log the map time left.
+			ServerCommand("mp_restartgame 1");//Reload map
+		#endif
 	}
 	//Remove conditions
 	for(int iClient = 0; iClient < MaxClients; iClient++)
@@ -910,15 +968,21 @@ public Action:Command_Fb_AddTime(int client, int args)
 				RespondToAdminCMD(client, "This command only accepts positive numbers. To force end a round use sm_fbround_forceend");
 				return Plugin_Handled;//Stop here.
 			}
-			else
-				RespondToAdminCMD(client, "Time command read");
 		}
 	}
+	decl String:TimeCommand[256];
+	
 	if(StrEqual(test_arg_class, "set",false))
+	{
 		FeedbackTimer = time;
+		Format(TimeCommand, sizeof(TimeCommand), "Time set to %i minutes.", time);
+	}
 	else if (StrEqual(test_arg_class, "add",false))
+	{
 		FeedbackTimer += time;
-
+		Format(TimeCommand, sizeof(TimeCommand), "Added %i minutes.", time);
+	}
+	RespondToAdminCMD(client,TimeCommand);
 	
 	return Plugin_Handled;
 }
@@ -975,17 +1039,13 @@ public int MenuHandler1(Menu menu, MenuAction action, int param1, int param2)
 		TeleportEntity(param1, vPos, vAng, NULL_VECTOR);
 		
     }
-    /* If the menu was cancelled, print a message to the server about it. */
-    else if (action == MenuAction_Cancel)
-    {
-        PrintToServer("Client %d's menu was cancelled.  Reason: %d", param1, param2);
-    }
     /* If the menu has ended, destroy it */
-    else if (action == MenuAction_End)
+    if (action == MenuAction_End)
     {
         delete menu;
     }
 }
+/* FBHelp command */
 public Action Command_FBround_Help(int client, int args)
 {
 	if(IsValidClient(client))
@@ -993,6 +1053,15 @@ public Action Command_FBround_Help(int client, int args)
 		CPrintToChat(client, "---------{gold}[Feedback Help]{default}---------\n {gold}Commands{default} : \n >fbspawn | Teleport to a list of unique spawn locations. \n >fbtellents | Print map edict count.");
 	}
 }
+/* Debug command */
+public Action Command_FBQuack(int client, int args)
+{
+	if(IsValidClient(client))
+	{
+		EmitSoundToAll(SOUND_QUACK,client, SNDCHAN_AUTO, SNDLEVEL_LIBRARY,SND_NOFLAGS,1.0, 100);
+	}
+}
+/* FBMenu command */
 public Action Menu_SpawnTest(int client, int args)
 {
 	LogAction(client,-1,"%n Asked for spawnpoints",client);
