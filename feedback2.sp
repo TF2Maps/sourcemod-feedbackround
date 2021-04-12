@@ -46,7 +46,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.4"
+#define PLUGIN_VERSION "0.0.5"
 
 //we might not need all these includes. But i dont know where this project is going so: Here they are!
 #include <sourcemod>
@@ -98,9 +98,10 @@ static const String:SplashText[][] = {
 };
 
 //Bools
-public bool IsTestModeTriggered = false; //IS THE INGAME TESTMODE READY TO ACTIVATE NEXT ROUND?
-public bool ForceNextRoundTest = false; //Next win. Enter test mode, If enough time is left, play next round normally.
-public bool FeedbackModeActive = false;//After the last round has ended, if no time is left, enter test mode.
+bool IsTestModeTriggered = false; //IS THE INGAME TESTMODE READY TO ACTIVATE NEXT ROUND?
+bool IsTestModeActive = false;//When the next round starts.
+bool ForceNextRoundTest = false; //Next win. Enter test mode, If enough time is left, play next round normally.
+bool FeedbackModeActive = false;//After the last round has ended, if no time is left, enter test mode.
 
 //HUD stuff
 new Handle:feedbackHUD;
@@ -157,13 +158,12 @@ public void OnPluginStart()
 {
 	//COMMENT OUT DEBUG AT THE TOP OF THE DOC TO AVOID THIS
 	#if defined DEBUG
-		PrintToServer("Feedback Debugmode");
-		FeedbackModeActive = true;
-	#endif
-
-	
+	PrintToServer("Feedback Debugmode");
+	FeedbackModeActive = true;
 	/* Inform the users. */
 	CPrintToChatAll("{gold}[Feedback 2.0 Loaded]{default} ~ Version %s - %s", PLUGIN_VERSION, SplashText[GetRandomInt(0,sizeof(SplashText) - 1)]);//Starting plugin
+	#endif
+	PrintToServer("[Feedback 2.0 Loaded] ~ Version %s - %s", PLUGIN_VERSION, SplashText[GetRandomInt(0,sizeof(SplashText) - 1)]);
 	
 	//Round ends
 	HookEvent("teamplay_round_win", Event_Round_End, EventHookMode_Pre);
@@ -176,9 +176,6 @@ public void OnPluginStart()
 	//Death and respawning
 	HookEvent("player_spawn", Event_Player_Spawn);
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
-	
-	//When players try to force a ready up
-	HookEvent("tournament_stateupdate", Event_Tournament_Ready);
 	//OnBuild
 	//TODO: Find a clean way to disable players collisions with buildings.
 	//Buildings have "SolidToPlayer" input and "m_SolidToPlayers" propdata, but they dont respond at all.
@@ -203,6 +200,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_fbspawn", Menu_SpawnTest, "Jump to a spawn point on the map.");
 	RegConsoleCmd("sm_fbspawns", Menu_SpawnTest, "Jump to a spawn point on the map.");
 	RegConsoleCmd("sm_fbrh", Command_FBround_Help, "Tellme tellme.");
+	
 	#if defined DEBUG
 	RegConsoleCmd("sm_fbquack", Command_FBQuack, "The characteristic harsh sound made by a duck");
 	#endif
@@ -225,13 +223,14 @@ public OnConfigsExecuted()
 	PrecacheSound(SOUND_WARNSOUND,true);
 	PrecacheSound(SOUND_HINTSOUND,true);
 	PrecacheSound(SOUND_QUACK,true);
+	SetCVAR_SILENT("mp_tournament_allow_non_admin_restart", 0);//Just in case.
 }
 /*
 	Use: On player spawn
 */
 public Action:Event_Player_Spawn(Handle:event,const String:name[],bool:dontBroadcast)
 {
-	if(!IsTestModeTriggered)//If not in test mode, do nothing.
+	if(!IsTestModeActive)//If not in test mode, do nothing.
 		return;
 		
 	new client = GetClientOfUserId(GetEventInt(event, "userid"));
@@ -298,19 +297,16 @@ public Action:Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroa
 	Use: When someone readys a team for mp_tournament
 		We block them here.
 */
-public Action:Event_Tournament_Ready(Handle:event,const String:name[],bool:dontBroadcast)
+public Action OnClientCommand(int client, int args)
 {
-	for(int iClient = 1; iClient < MaxClients; iClient++)
+	char cmd[256];
+	GetCmdArg(0, cmd, sizeof(cmd)); //Get command name
+	if (StrEqual(cmd, "tournament_readystate"))
 	{
-		if(IsValidClient(iClient))
-		{
-			GameRules_SetProp("m_bTeamReady", 0, .element=iClient);//Copied this off allied modders lol.
-			//Sets everyone on red team to not be ready, I guess blue can ready
-			//But the game wont start
-			//If there is a cvar to stop people from readying up please use that and remove this.
-		}
+		return Plugin_Handled;
 	}
-	return Plugin_Handled;
+
+	return Plugin_Continue;
 }
 /*
 	Use: Post tournament timer
@@ -327,6 +323,7 @@ public Action ResetTimeLimit(Handle timer, any serial)
 public void OnMapEnd()
 {
 	IsTestModeTriggered = false;
+	IsTestModeActive = false;
 	ForceNextRoundTest = false;
 	//Reset these to -1.
 	FeedbackTimer = -1;
@@ -471,8 +468,6 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		ExtendMapTimeLimit(MapTimeDistance);//This prints "mp_timelimit" in chat, Why?
 		MapTimeStorage = -1;
 	}
-
-
 	if(ForceNextRoundTest)
 	{
 		IsTestModeTriggered = true;
@@ -481,6 +476,8 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 
 	if(!IsTestModeTriggered)//If not test mode, run normally
 		return;
+		
+	IsTestModeActive = true;
 	CreateTimer(1.0,ResetTimeLimit);//Remove tournament
 	
 	//Really? no multi like strings?
@@ -594,7 +591,15 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	while ((ent = FindEntityByClassname(ent, "team_round_timer")) != -1)//Pause round timers.
 	{
 		AcceptEntityInput(ent,"Pause");
-		AcceptEntityInput(ent,"ShowInHUD 0");
+		SetVariantString("0");
+		AcceptEntityInput(ent,"ShowInHUD");
+	}
+	
+	ent = -1;
+	while ((ent = FindEntityByClassname(ent, "trigger_capture_area")) != -1)//Kill all control points.
+	{
+		//We kill the capture zones insead of just disabling them incase the capture zone has an input to re-enable.
+		AcceptEntityInput(ent,"Kill");
 	}
 	
 	
@@ -697,6 +702,7 @@ void FeedbackTimerExpired()
 		}
 	}
 	IsTestModeTriggered = false;
+	IsTestModeActive = false;
 }
 /*
 	Use: Clean up timer
@@ -1060,6 +1066,14 @@ public Action Command_FBQuack(int client, int args)
 	{
 		EmitSoundToAll(SOUND_QUACK,client, SNDCHAN_AUTO, SNDLEVEL_LIBRARY,SND_NOFLAGS,1.0, 100);
 	}
+	new ent = -1;//Open all doors.
+	while ((ent = FindEntityByClassname(ent, "obj_sentrygun")) != -1)
+	{
+		PrintToChatAll("Found sentry");
+		SetVariantString("0");
+		AcceptEntityInput(ent, "SetSolidToPlayer");//Swing
+	}
+	return Plugin_Handled;
 }
 /* FBMenu command */
 public Action Menu_SpawnTest(int client, int args)
