@@ -46,7 +46,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.6"
+#define PLUGIN_VERSION "0.0.7"
 
 //we might not need all these includes. But i dont know where this project is going so: Here they are!
 #include <sourcemod>
@@ -648,7 +648,7 @@ public Action CountdownTimer(Handle timer, any serial)
 	
 	if(FeedbackTimer == 0)
 	{
-		if(GetMapTimeLeftInt() <= 0)//time expired, nextmap.
+		if(GetMapTimeLeftInt() <= ReturnExpectedDowntime())//time expired, nextmap.
 		{
 			new String:mapString[256] = "cp_dustbowl";//If no nextmap, dustbowl
 			GetNextMap(mapString, sizeof(mapString));
@@ -670,13 +670,13 @@ public Action CountdownTimer(Handle timer, any serial)
 */
 void FeedbackTimerExpired()
 {
-	if(GetMapTimeLeftInt() <= 0)//load next map.
+	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime())//load next map.
 	{
 		new String:mapString[256] = "cp_dustbowl";//If no nextmap, dustbowl
 		GetNextMap(mapString, sizeof(mapString));
-		//ForceChangeLevel(mapString, "Feedback time ran out");
-		PrintToServer("CALLED CHANGE LEVEL: FEEDBACK PLUGIN");
-		ServerCommand("changelevel %s",mapString);
+		ForceChangeLevel(mapString, "Feedback time ran out");
+		//PrintToServer("CALLED CHANGE LEVEL: FEEDBACK PLUGIN");
+		//ServerCommand("changelevel %s",mapString);
 	}
 	else
 	{
