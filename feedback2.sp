@@ -46,7 +46,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.5"
+#define PLUGIN_VERSION "0.0.6"
 
 //we might not need all these includes. But i dont know where this project is going so: Here they are!
 #include <sourcemod>
@@ -670,12 +670,13 @@ public Action CountdownTimer(Handle timer, any serial)
 */
 void FeedbackTimerExpired()
 {
-	CleanUpTimer();
-	if(GetMapTimeLeftInt() <= 3)//if less than 3 seconds are left in this map, load next map.
+	if(GetMapTimeLeftInt() <= 0)//load next map.
 	{
 		new String:mapString[256] = "cp_dustbowl";//If no nextmap, dustbowl
 		GetNextMap(mapString, sizeof(mapString));
-		ForceChangeLevel(mapString, "Feedback time ran out");
+		//ForceChangeLevel(mapString, "Feedback time ran out");
+		PrintToServer("CALLED CHANGE LEVEL: FEEDBACK PLUGIN");
+		ServerCommand("changelevel %s",mapString);
 	}
 	else
 	{
@@ -703,6 +704,7 @@ void FeedbackTimerExpired()
 	}
 	IsTestModeTriggered = false;
 	IsTestModeActive = false;
+	CleanUpTimer();
 }
 /*
 	Use: Clean up timer
@@ -981,12 +983,12 @@ public Action:Command_Fb_AddTime(int client, int args)
 	if(StrEqual(test_arg_class, "set",false))
 	{
 		FeedbackTimer = time;
-		Format(TimeCommand, sizeof(TimeCommand), "Time set to %i minutes.", time);
+		Format(TimeCommand, sizeof(TimeCommand), "Time set to %i minutes.", time / 60);
 	}
 	else if (StrEqual(test_arg_class, "add",false))
 	{
 		FeedbackTimer += time;
-		Format(TimeCommand, sizeof(TimeCommand), "Added %i minutes.", time);
+		Format(TimeCommand, sizeof(TimeCommand), "Added %i minutes.", time / 60);
 	}
 	RespondToAdminCMD(client,TimeCommand);
 	
