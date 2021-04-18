@@ -16,26 +16,19 @@
 			
 			
 	TODOs:
-		//100% required
-			This is required to continue.
-			
-	>>>>-Joe mama. hehehe
-		
-	-----------------------------------------------
+		-Look into why spawnpoints are not showing up in !fb_spawn
+		-Fix 5CP midgame FB rounds running into timelimit ends.
+		-Look into having FB rounds always in tournament mode.
+		-----------------------------------------------
 		//Over engineering: 
 			Otherwise useless shit.
-			
-		-Add highlight system
-			highlight dynamic elements you are looking at?? (Don't think this is possible due to glow limitations)
-		-Add node system
-			You can draw nodes to explain what you are thinking: Could help demo reviewers understand what the brain is.
-			Could help spit out what you are thinking.
 		-Add Drawline command 
 			Return value to user of how long a sightline is			
 		-Info_Targets mappers can place for spacific playtests
 			Read these targets and run commands.
 				ex: Force scramble after every round if an info_target is named "TF2M_FORCESCRAMBLE"
 					This is just streamlining things, last priority.
+		
 		-----------------------------------------------
 			
 */
@@ -46,16 +39,16 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.7"
+#define PLUGIN_VERSION "0.0.8"
 
-//we might not need all these includes. But i dont know where this project is going so: Here they are!
 #include <sourcemod>
-#include <sdktools>
 #include <morecolors>
-#include <clientprefs>
-#include <tf2>
 #include <tf2_stocks>
 #include <sdkhooks>
+#include <feedback2>
+//#include <sdktools>
+//#include <clientprefs>
+//#include <tf2>
 
 #define BoolValue_False 0
 #define BoolValue_True 1
@@ -94,14 +87,15 @@ static const String:SplashText[][] = {
 	"Hopfully something actually changed...", 
 	"Ugh... Again??", 
 	"Déjà vu!",
-	"Now with 15% less sugar."
+	"Now with 15% less sugar, and 50% more salt."
 };
 
 //Bools
-bool IsTestModeTriggered = false; //IS THE INGAME TESTMODE READY TO ACTIVATE NEXT ROUND?
-bool IsTestModeActive = false;//When the next round starts.
-bool ForceNextRoundTest = false; //Next win. Enter test mode, If enough time is left, play next round normally.
-bool FeedbackModeActive = false;//After the last round has ended, if no time is left, enter test mode.
+new bool:IsTestModeTriggered = false; //IS THE INGAME TESTMODE READY TO ACTIVATE NEXT ROUND?
+new bool:IsTestModeActive = false;//When the next round starts.
+new bool:ForceNextRoundTest = false; //Next win. Enter test mode, If enough time is left, play next round normally.
+new bool:FeedbackModeActive = false;//After the last round has ended, if no time is left, enter test mode.
+//new bool:IsMapLoaded = false;//Might come in use later on.
 
 //HUD stuff
 new Handle:feedbackHUD;
@@ -176,6 +170,7 @@ public void OnPluginStart()
 	//Death and respawning
 	HookEvent("player_spawn", Event_Player_Spawn);
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
+	
 	//OnBuild
 	//TODO: Find a clean way to disable players collisions with buildings.
 	//Buildings have "SolidToPlayer" input and "m_SolidToPlayers" propdata, but they dont respond at all.
@@ -192,6 +187,7 @@ public void OnPluginStart()
 	
 	
 	RegAdminCmd("sm_fbround_forceend", Command_Fb_Cancel_Round, ADMFLAG_KICK, "Enforce the death of an fb round");
+	RegAdminCmd("sm_fbend", Command_Fb_Cancel_Round, ADMFLAG_KICK, "Enforce the death of an fb round");
 	RegAdminCmd("sm_fbtimer", Command_Fb_AddTime, ADMFLAG_KICK, "<Add/Set> <Time in minutes> (ONLY CAN BE USED MID FB ROUND!!!)");
 	
 	
@@ -212,9 +208,15 @@ public void OnPluginStart()
 	
 	//instantiate arrays
 	SpawnPointNames = new ArrayList(512);
-	SpawnPointEntIDs = new ArrayList(4);
+	SpawnPointEntIDs = new ArrayList(512);
 	
 	PopulateSpawnList();
+	
+	/* Natives */
+	//If in the future anyone else comes in to write a plugin that has to navigate around this one, these should help
+	CreateNative("FB2_IsFbRoundActive", Native_IsFbRoundActive);
+	CreateNative("FB2_ForceNextRoundTest", Native_ForceNextRoundTest);
+	CreateNative("FB2_EndMapFeedbackModeActive", Native_EndMapFeedBackModeActive);
 	
 }
 public OnConfigsExecuted()
@@ -224,6 +226,21 @@ public OnConfigsExecuted()
 	PrecacheSound(SOUND_HINTSOUND,true);
 	PrecacheSound(SOUND_QUACK,true);
 	SetCVAR_SILENT("mp_tournament_allow_non_admin_restart", 0);//Just in case.
+}
+/*
+	Natives.
+*/
+public Native_IsFbRoundActive(Handle:plugin, numParams)
+{
+    return IsTestModeActive;
+}
+public Native_ForceNextRoundTest(Handle:plugin, numParams)
+{
+    return ForceNextRoundTest;
+}
+public Native_EndMapFeedBackModeActive(Handle:plugin, numParams)
+{
+    return FeedbackModeActive;
 }
 /*
 	Use: On player spawn
@@ -305,7 +322,6 @@ public Action OnClientCommand(int client, int args)
 	{
 		return Plugin_Handled;
 	}
-
 	return Plugin_Continue;
 }
 /*
@@ -318,10 +334,18 @@ public Action ResetTimeLimit(Handle timer, any serial)
 	ServerCommand("mp_waitingforplayers_cancel 1");//Kill waiting for players post tournament mode
 }
 /*
+	Use: On map start.
+*/
+public OnMapStart()
+{
+	//IsMapLoaded = true;
+}
+/*
 	Use: On map end, Reset everything.
 */
 public void OnMapEnd()
 {
+	//IsMapLoaded = false;
 	IsTestModeTriggered = false;
 	IsTestModeActive = false;
 	ForceNextRoundTest = false;
@@ -329,9 +353,10 @@ public void OnMapEnd()
 	FeedbackTimer = -1;
 	MapTimeStorage = -1;
 	CleanUpTimer();//Just in case.
-	CreateTimer(0.0,ResetTimeLimit);//UNDO MAPCHANGE BLOCK
 	ClearSpawnPointsArray();
-
+	SetCVAR_SILENT("mp_tournament",0);
+	//Re-ACTIVATE RTV!!!
+	RTVNative_PauseRTV(false);
 }
 /*
 	Use: Reset the respawnpoints array
@@ -393,7 +418,13 @@ public Action:Event_Round_End(Handle:event,const String:name[],bool:dontBroadcas
 	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || ForceNextRoundTest)//25 seconds left or next round is a forced test.
 	{
 		CPrintToChatAll("{gold}[Feedback]{default} ~ Feedback round triggered");//Tell users in chat it has been triggered
+		
+		//Pause RTVing, Reset players RTVs
+		RTVNative_PauseRTV(true);
+		RTVNative_ResetRTV();
+		
 		IsTestModeTriggered = true;//Set test mode true
+		
 		if(GetMapTimeLeftInt() <= ReturnExpectedDowntime())//if we need to block the hit, do so.
 		{
 			SetCVAR_SILENT("mp_tournament",1);//Run config stuff
@@ -419,6 +450,10 @@ public OnEntityCreated(entity, const String:classname[])
 	if(StrEqual(classname, "tf_projectile_pipe"))
 	{
 		SDKHook(entity, SDKHook_SpawnPost, Pipe_Spawned_post);
+	}
+	if(StrEqual(classname, "tf_projectile_jar"))
+	{
+		AcceptEntityInput(entity,"Kill");
 	}
 }
 /*
@@ -477,11 +512,15 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	if(!IsTestModeTriggered)//If not test mode, run normally
 		return;
 		
+	//Enable RTV again.
+	//It should be reset by now.
+	RTVNative_PauseRTV(false);
+	
 	IsTestModeActive = true;
 	CreateTimer(1.0,ResetTimeLimit);//Remove tournament
 	
-	//Really? no multi like strings?
-	CPrintToChatAll("\n\n ------------------------ \n{gold}[Feedback]{default} ~ Feedback round started: !sm_fbrh for more info\n\n {gold}>{default}You cannot kill anyone\n {gold}>{default}Leave as much feedback as possible.\n  ------------------------");//Tell everyone about test mode.
+	CPrintToChatAll("------------------------ \n{gold}[Feedback]{default} ~ Feedback round started: !sm_fbrh for more info\n\n {gold}>{default}You cannot kill anyone\n {gold}>{default}Leave as much feedback as possible.\n\n ------------------------");//Tell everyone about test mode.
+	
 	
 	//Set timer
 	FeedbackTimer = cvarList[FB_CVAR_ALLOTED_TIME].IntValue;//Read the cvar and set the timer to the cvartime.
@@ -497,10 +536,6 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		AcceptEntityInput(ent, "unlock");
 		AcceptEntityInput(ent, "Open");
 	}
-	
-	
-	
-	
 	/*			GAMEMODE CHECKS				*/
 	//TODO: Find a way to not use OnFireUser1
 	//This creates edgecases that i want to avoid.
@@ -607,15 +642,24 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	
 	
 	/* Force respawn everyone, Under the force next round condition: Players will not spawn properly! This is a bodge to get around that xdd */
-	for(int ic = 1; ic < MaxClients; ic++)
+	for(int ic = 0; ic < MaxClients; ic++)
 	{
 		if(IsValidClient(ic))
+		{
 			TF2_RespawnPlayer(ic);
+			//We loop and call this multiple times
+			//There is a chance that we are ignored by the game, so we just flood till we are accepted.
+			//Not proud of this, but i absolutely despise sourcemod huds, yucky...
+			for(int l = 0; l < 5; l++)
+			{
+				SetHudTextParams(-1.0, -0.75, 10.0, 144, 233, 64, 255); //Hud settings
+				ShowHudText(ic, -1, "| FEEDBACK ROUND TRIGGERED | \n | > You cannot deal damage | > Leave as much feedback as possible |");//client, channel, text
+			}
+		}
 	}
 	
 	CleanUpTimer();//Incase it was already running. Clean it up before a new cycle.
-	// Fb timer
-	fbTimer = CreateTimer(1.0, CountdownTimer, _, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);//DONT CARRY OVER MAP CHANGE!
+	fbTimer = CreateTimer(1.0, CountdownTimer, _, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);//DONT CARRY OVER MAP CHANGE! Oh and repeat.
 }
 /*
 	Use: Countdown timer logic
@@ -625,7 +669,7 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 public Action CountdownTimer(Handle timer, any serial)
 {
 	/*Hud Stuff*/
-	for(int iClient = 1; iClient < MaxClients; iClient++)
+	for(int iClient = 0; iClient < MaxClients; iClient++)
 	{
 		if(IsValidClient(iClient))
 		{
@@ -663,7 +707,8 @@ public Action CountdownTimer(Handle timer, any serial)
 	{
 		FeedbackTimerExpired();
 	}
-	FeedbackTimer -= 1;//Take away one from the timer
+	else//More than -5, Stop multiple timer ends.
+		FeedbackTimer -= 1;//Take away one from the timer
 }
 /*
 	Use: On timer expired, To simplify above and allow for more modular design.
@@ -732,8 +777,9 @@ void UpdateHud(client)
 }
 public OnClientDisconnect(int client)
 {
+	//Cleanup after users.
 	int countplayers = 0;
-	for(int iClient = 1; iClient <= MaxClients; iClient++)
+	for(int iClient = 0; iClient <= MaxClients; iClient++)
 	{
 		if(IsValidClient(iClient))//Real players
 		{
@@ -747,7 +793,6 @@ public OnClientDisconnect(int client)
 	{
 		FeedbackModeActive = false;
 		ForceNextRoundTest = false;
-		
 	}
 }
 /*
@@ -826,7 +871,7 @@ void RespondToAdminCMD(client, String:StringText[])
 }
 public Action:Command_Fb_Next_RoundToggle(int client, int args)
 {
-	LogAction(client,-1,"%n Called FB Nextround",client);
+	LogAction(client,-1,"%N Called FB Nextround",client);
 	if (args < 1)
 	{
 		//Flip the bool.
@@ -883,7 +928,7 @@ public Action:Command_Fb_Next_RoundToggle(int client, int args)
 public Action:Command_FB_Round_Enabled(int client, int args)
 {
 	//We should probbably call this later, then say "Toggled on/off"
-	LogAction(client,-1,"%n Called FB Round toggle",client);
+	LogAction(client,-1,"%N Called FB Round toggle",client);
 
 	if (args < 1)//CALLED TOGGLE
 	{
@@ -951,7 +996,7 @@ public Action:Command_Fb_AddTime(int client, int args)
 		return Plugin_Handled;
 	}
 	
-	LogAction(client,-1,"%n Changed the FBRound timer.",client);
+	LogAction(client,-1,"%N Changed the FBRound timer.",client);
 	
 	/*		Get ARGS me m8ty		*/	
 	//get classification
@@ -996,7 +1041,7 @@ public Action:Command_Fb_AddTime(int client, int args)
 }
 public Action:Command_Fb_Cancel_Round(int client, int args)
 {
-	LogAction(client,-1,"%n Skipped the FB round.",client);
+	LogAction(client,-1,"%N Skipped the FB round.",client);
 	if(IsTestModeTriggered)
 	{
 		RespondToAdminCMD(client, "Skipping FB round.");
@@ -1009,12 +1054,12 @@ public Action:Command_Fb_Cancel_Round(int client, int args)
 }
 public Action:Command_ReturnEdicts(int client, int args)
 {
-	LogAction(client,-1,"%n Asked for edicts.",client);
+	LogAction(client,-1,"%N Asked for edicts.",client);
 	CReplyToCommand(client, "{gold}[Feedback]{default} There are %i edicts on the level.", GetEntityCount());
 }
 public Action:Command_Fb_OpenDoors(int client, int args)
 {
-	LogAction(client,-1,"%n Opened all doors.",client);
+	LogAction(client,-1,"%N Opened all doors.",client);
 	int DoorsOpened = 0;
 	new ent = -1;//Open all doors.
 	while ((ent = FindEntityByClassname(ent, "func_door")) != -1)
@@ -1068,22 +1113,15 @@ public Action Command_FBQuack(int client, int args)
 	{
 		EmitSoundToAll(SOUND_QUACK,client, SNDCHAN_AUTO, SNDLEVEL_LIBRARY,SND_NOFLAGS,1.0, 100);
 	}
-	new ent = -1;//Open all doors.
-	while ((ent = FindEntityByClassname(ent, "obj_sentrygun")) != -1)
-	{
-		PrintToChatAll("Found sentry");
-		SetVariantString("0");
-		AcceptEntityInput(ent, "SetSolidToPlayer");//Swing
-	}
 	return Plugin_Handled;
 }
 /* FBMenu command */
 public Action Menu_SpawnTest(int client, int args)
 {
-	LogAction(client,-1,"%n Asked for spawnpoints",client);
+	LogAction(client,-1,"%N Asked for spawnpoints",client);
 	if(IsTestModeTriggered)
 	{
-		//ONLY FOR DEBUGGING. THE ARRAY SHOULD BE CREATED ON PLUGIN START.
+		//ONLY FOR DEBUGGING. THE ARRAY SHOULD BE CREATED ON PLUGIN START / Map spawn
 		#if defined DEBUG
 			PopulateSpawnList();
 		#endif
@@ -1120,7 +1158,8 @@ void ShowClientTPPage(client)
 void PopulateSpawnList()
 {
 	ClearSpawnPointsArray();
-	new ent = -1;//Open all doors.
+	
+	new ent = -1;
 	while ((ent = FindEntityByClassname(ent, "info_player_teamspawn")) != -1)
 	{
 		bool AddThisString = false;
