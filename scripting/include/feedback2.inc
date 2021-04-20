@@ -1,22 +1,3 @@
-/**
- * If we want to pause RTV
- *
- * @param 		If we should pause or not.
- * @return		Returns nothing    
- */
-native RTVNative_PauseRTV(bool:startPause);
-/**
- * If we want to reset the RTV count
- *
- * @return		Returns nothing. 
- */
-native RTVNative_ResetRTV();
-/**
- * Is feedback round active?
- *
- * @return		true: Active 
- *				false: Not Active
- */
 native FB2_IsFbRoundActive();
 /**
  * Is feedback next round triggered
@@ -32,3 +13,9 @@ native FB2_ForceNextRoundTest();
  *				false: Last rounds will NOT be FB Rounds
  */
 native FB2_EndMapFeedbackModeActive();
+/**
+ * Stop what you are doing, force a FB round to start.
+ *
+ * @return		Returns 1 on pass, -1 on failure.
+ */
+native FB2_ForceCancelRound_StartFBRound();
