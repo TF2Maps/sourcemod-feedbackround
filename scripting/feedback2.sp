@@ -39,7 +39,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.8"
+#define PLUGIN_VERSION "0.0.9"
 
 #include <sourcemod>
 #include <morecolors>
@@ -95,6 +95,8 @@ new bool:IsTestModeTriggered = false; //IS THE INGAME TESTMODE READY TO ACTIVATE
 new bool:IsTestModeActive = false;//When the next round starts.
 new bool:ForceNextRoundTest = false; //Next win. Enter test mode, If enough time is left, play next round normally.
 new bool:FeedbackModeActive = false;//After the last round has ended, if no time is left, enter test mode.
+new bool:ForceFBRoundStarted = false;//Failsafe: Stop recalls from happening, incase sourcemod stuffs us.
+new bool:ShowFeedbackRoundHud = false;
 //new bool:IsMapLoaded = false;//Might come in use later on.
 
 //HUD stuff
@@ -122,6 +124,7 @@ TFCond AppliedUber = TFCond:51;
 
 //-1 is default
 int MapTimeStorage = -1;
+int AlltalkBuffer = -1;
 
 enum CollisionGroup
 {
@@ -163,6 +166,8 @@ public void OnPluginStart()
 	HookEvent("teamplay_round_win", Event_Round_End, EventHookMode_Pre);
 	HookEvent("teamplay_round_stalemate", Event_Round_End, EventHookMode_Pre);
 	HookEvent("arena_win_panel", Event_Round_End, EventHookMode_Pre);//Arena mode. (oh god...)
+	
+	HookEvent("teamplay_round_active", Event_Teamplay_RoundActive);//When we can walk
 	
 	//Round start
 	HookEvent("teamplay_round_start", Event_Round_Start);
@@ -217,6 +222,7 @@ public void OnPluginStart()
 	CreateNative("FB2_IsFbRoundActive", Native_IsFbRoundActive);
 	CreateNative("FB2_ForceNextRoundTest", Native_ForceNextRoundTest);
 	CreateNative("FB2_EndMapFeedbackModeActive", Native_EndMapFeedBackModeActive);
+	CreateNative("FB2_ForceCancelRound_StartFBRound", Native_ForceCancelRoundStartFBRound);
 	
 }
 public OnConfigsExecuted()
@@ -240,7 +246,48 @@ public Native_ForceNextRoundTest(Handle:plugin, numParams)
 }
 public Native_EndMapFeedBackModeActive(Handle:plugin, numParams)
 {
-    return FeedbackModeActive;
+	bool fbEndOfMap = FeedbackModeActive;
+	if(!fbEndOfMap)//if false, check if map wants the round.
+	{
+		fbEndOfMap = GetMapForceFeedbackLastRound();
+	}
+	return FeedbackModeActive;
+}
+public Native_ForceCancelRoundStartFBRound(Handle:plugin, numParams)
+{
+	ForceStartFBRound();
+	return 1;
+}
+/*
+	Use: Stop everything and force a FB round.
+*/
+void ForceStartFBRound()
+{
+	if(!ForceFBRoundStarted)//if not started.
+	{
+		PauseRTV(true);//Pause RTV.
+		ResetRTV();//Reset rtv,
+		//Allert players.
+		CPrintToChatAll("{gold}[Feedback]{default} ~ Round canceled! Feedback round started.");
+		ForceNextRoundTest = true;//Enable next round FB.
+		ServerCommand("mp_restartgame 1");
+		ForceFBRoundStarted = true;
+	}
+}
+void PauseRTV(bool isPaused)
+{
+	if(isPaused)
+	{
+		ServerCommand("sm_pausertv true");
+	}
+	else
+	{
+		ServerCommand("sm_pausertv false");
+	}
+}
+void ResetRTV()
+{
+	ServerCommand("sm_resetrtv");
 }
 /*
 	Use: On player spawn
@@ -298,7 +345,7 @@ public Action ForceRespawnPlayer(Handle timer, any serial)
 public Action:Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast)
 {
 
-	if(!IsTestModeTriggered)//If not test mode. Do nothing.
+	if(!IsTestModeActive)//If not test mode. Do nothing.
 	return Plugin_Continue;
 	
 	new client = GetClientOfUserId(GetEventInt(event, "userid"));//GetClient
@@ -318,7 +365,8 @@ public Action OnClientCommand(int client, int args)
 {
 	char cmd[256];
 	GetCmdArg(0, cmd, sizeof(cmd)); //Get command name
-	if (StrEqual(cmd, "tournament_readystate"))
+	//Block team ready / team name change
+	if (StrEqual(cmd, "tournament_readystate") || StrEqual(cmd, "tournament_teamname"))
 	{
 		return Plugin_Handled;
 	}
@@ -349,6 +397,7 @@ public void OnMapEnd()
 	IsTestModeTriggered = false;
 	IsTestModeActive = false;
 	ForceNextRoundTest = false;
+	ForceFBRoundStarted = false;
 	//Reset these to -1.
 	FeedbackTimer = -1;
 	MapTimeStorage = -1;
@@ -356,7 +405,20 @@ public void OnMapEnd()
 	ClearSpawnPointsArray();
 	SetCVAR_SILENT("mp_tournament",0);
 	//Re-ACTIVATE RTV!!!
-	RTVNative_PauseRTV(false);
+	PauseRTV(false);
+	ResetAlltalk();
+	
+}
+/*
+	Use: Resets alltalk
+*/
+void ResetAlltalk()
+{
+	if(AlltalkBuffer != -1)//We found a cvar change.
+	{
+		SetCVAR_SILENT("sv_alltalk",AlltalkBuffer);
+		AlltalkBuffer = -1;
+	}
 }
 /*
 	Use: Reset the respawnpoints array
@@ -400,6 +462,20 @@ bool GetMapForceFeedbackLastRound()
 	}
 	return IsMapFBmap;
 }
+
+public Action:Event_Teamplay_RoundActive(Handle:event,const String:name[],bool:dontBroadcast)
+{
+	if(IsTestModeActive)
+	{
+		ShowFeedbackRoundHud = true;
+		for(int iClient = 0; iClient <= MaxClients; iClient++)
+		{
+			if(IsValidClient(iClient))
+				SetPlayerFBMode(iClient,true);
+		}
+	}
+}
+
 /*
 	Use: When a round is won or stalemated
 		Check how many seconds are left on this map.
@@ -418,10 +494,10 @@ public Action:Event_Round_End(Handle:event,const String:name[],bool:dontBroadcas
 	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || ForceNextRoundTest)//25 seconds left or next round is a forced test.
 	{
 		CPrintToChatAll("{gold}[Feedback]{default} ~ Feedback round triggered");//Tell users in chat it has been triggered
-		
+		ShowFeedbackRoundHud = false;
 		//Pause RTVing, Reset players RTVs
-		RTVNative_PauseRTV(true);
-		RTVNative_ResetRTV();
+		PauseRTV(true);
+		ResetRTV();
 		
 		IsTestModeTriggered = true;//Set test mode true
 		
@@ -503,18 +579,26 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		ExtendMapTimeLimit(MapTimeDistance);//This prints "mp_timelimit" in chat, Why?
 		MapTimeStorage = -1;
 	}
+	
 	if(ForceNextRoundTest)
 	{
+		ShowFeedbackRoundHud = false;
 		IsTestModeTriggered = true;
 		ForceNextRoundTest = false;//Expire next round test.
+		ForceFBRoundStarted = false;//We are no longer forcing fb round, its natural now.
 	}
 
 	if(!IsTestModeTriggered)//If not test mode, run normally
 		return;
 		
+	//Alltalk handle
+	
+	AlltalkBuffer = GetConVarInt(FindConVar("sv_alltalk"));
+	SetCVAR_SILENT("sv_alltalk",1);
+		
 	//Enable RTV again.
 	//It should be reset by now.
-	RTVNative_PauseRTV(false);
+	PauseRTV(false);
 	
 	IsTestModeActive = true;
 	CreateTimer(1.0,ResetTimeLimit);//Remove tournament
@@ -647,14 +731,8 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		if(IsValidClient(ic))
 		{
 			TF2_RespawnPlayer(ic);
-			//We loop and call this multiple times
-			//There is a chance that we are ignored by the game, so we just flood till we are accepted.
-			//Not proud of this, but i absolutely despise sourcemod huds, yucky...
-			for(int l = 0; l < 5; l++)
-			{
-				SetHudTextParams(-1.0, -0.75, 10.0, 144, 233, 64, 255); //Hud settings
-				ShowHudText(ic, -1, "| FEEDBACK ROUND TRIGGERED | \n | > You cannot deal damage | > Leave as much feedback as possible |");//client, channel, text
-			}
+			SetHudTextParams(-1.0, -0.5, 10.0, 255, 157, 0, 255); //Hud settings
+			ShowSyncHudText(ic, feedbackHUD, "| FEEDBACK ROUND TRIGGERED | \n > | You cannot deal damage | Leave as much feedback as possible | <");//client, channel, text
 		}
 	}
 	
@@ -715,6 +793,7 @@ public Action CountdownTimer(Handle timer, any serial)
 */
 void FeedbackTimerExpired()
 {
+	ResetAlltalk();
 	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime())//load next map.
 	{
 		new String:mapString[256] = "cp_dustbowl";//If no nextmap, dustbowl
@@ -768,11 +847,11 @@ void CleanUpTimer()
 */
 void UpdateHud(client)
 {
-	if(!IsValidClient(client) || !IsPlayerAlive(client))
+	if(!IsValidClient(client) || !IsPlayerAlive(client) || !ShowFeedbackRoundHud)
 		return;//if they are not real or alive, dont draw for them.
 		//One thing to note is players connecting can be told to draw hud. so checking if they are alive is important.
 		//Can cause error if i remember correctly.
-	SetHudTextParams(-1.0, 0.80, 1.25, 144, 233, 64, 255); //Vsh hud location
+	SetHudTextParams(-1.0, 0.80, 1.25, 198, 145, 65, 255); //Vsh hud location
 	ShowSyncHudText(client, feedbackHUD, "| Time left %s |", CurrentTime());//Current time is below, Super suspect thing i wrote like 2 years ago lol.
 }
 public OnClientDisconnect(int client)
