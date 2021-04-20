@@ -1,4 +1,5 @@
 //EDITED FOR FEEDBACK2 PLUGIN.
+//0.0.1
 /**
  * vim: set ts=4 :
  * =============================================================================
@@ -38,6 +39,9 @@
 #include <nextmap>
 
 #pragma semicolon 1
+#define BoolValue_False 0
+#define BoolValue_True 1
+#define BoolValue_Null -1
 
 public Plugin myinfo =
 {
@@ -81,21 +85,43 @@ public void OnPluginStart()
 	
 	AutoExecConfig(true, "rtv");
 	
-	CreateNative("RTVNative_PauseRTV", Native_PauseRTV);//Takes True/False
-	CreateNative("RTVNative_ResetRTV",Native_ResetRTV);//Reset RTV
-}
+	RegAdminCmd("sm_pausertv", Command_PauseRTV, ADMFLAG_KICK, "Pauses RTV");
+	RegAdminCmd("sm_resetrtv", Command_ResetRTV, ADMFLAG_KICK, "Resets RTV");
 
-public Native_PauseRTV(Handle:plugin, numParams)
-{
-	bool isPaused = GetNativeCell(1);
-	g_RTVPaused = isPaused;
-	return -1;
 }
-public Native_ResetRTV(Handle:plugin, numParams)
+public Action:Command_PauseRTV(int client, int args)
+{
+	if (args < 1)
+	{
+		PrintToServer("RTV pause needs more args");
+	}
+	char test_arg[32];
+	GetCmdArg(1, test_arg, sizeof(test_arg));
+	int output = Convert_String_True_False(test_arg);//Convert that arguement to simplify
+	bool isPaused = false;
+	if(output == BoolValue_True)
+	isPaused = true;
+	
+	PauseRTV(isPaused);
+}
+public Action:Command_ResetRTV(int client, int args)
 {
 	ResetRTV();
-	return -1;
 }
+int Convert_String_True_False(String:StringName[])
+{
+	if(StrEqual(StringName,"false",false) || StrEqual(StringName,"no",false) || StrEqual(StringName,"0",false))//if false
+		return BoolValue_False;
+	else if(StrEqual(StringName,"true",false) || StrEqual(StringName,"yes",false) || StrEqual(StringName,"1",false))//if true
+		return BoolValue_True;
+	else //If not any of these. its null.
+		return BoolValue_Null;
+}
+public PauseRTV(bool:isPaused)
+{
+	g_RTVPaused = isPaused;
+}
+
 
 public void OnMapStart()
 {
@@ -249,6 +275,18 @@ public Action Timer_DelayRTV(Handle timer)
 
 void StartRTV()
 {
+	/* FB round block */
+	if(!FB2_IsFbRoundActive())//FB ROUND IS NOT ACTIVE, ENTER.
+	{
+		if(FB2_ForceNextRoundTest() || FB2_EndMapFeedbackModeActive())//If FB mode is set for end of map/ end of round. ENTER!
+		{
+			//Run over to the FB plugin.
+			FB2_ForceCancelRound_StartFBRound();
+			return;
+		}
+	}
+	
+
 	if (g_InChange)
 	{
 		return;	
