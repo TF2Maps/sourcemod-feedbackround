@@ -1,5 +1,5 @@
 //EDITED FOR FEEDBACK2 PLUGIN.
-//0.0.1
+//0.0.2
 /**
  * vim: set ts=4 :
  * =============================================================================
@@ -39,9 +39,6 @@
 #include <nextmap>
 
 #pragma semicolon 1
-#define BoolValue_False 0
-#define BoolValue_True 1
-#define BoolValue_Null -1
 
 public Plugin myinfo =
 {
@@ -281,6 +278,7 @@ void StartRTV()
 		if(FB2_ForceNextRoundTest() || FB2_EndMapFeedbackModeActive())//If FB mode is set for end of map/ end of round. ENTER!
 		{
 			//Run over to the FB plugin.
+			FB2_ForceFbRoundLastRound(true);//Force last round.
 			FB2_ForceCancelRound_StartFBRound();
 			return;
 		}
