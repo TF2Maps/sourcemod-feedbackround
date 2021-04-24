@@ -17,6 +17,7 @@
 			
 	TODOs:
 		-Look into why spawnpoints are not showing up in !fb_spawn
+		
 		-Fix 5CP midgame FB rounds running into timelimit ends.
 		-Look into having FB rounds always in tournament mode.
 		-----------------------------------------------
@@ -24,6 +25,7 @@
 			Otherwise useless shit.
 		-Add Drawline command 
 			Return value to user of how long a sightline is			
+			
 		-Info_Targets mappers can place for spacific playtests
 			Read these targets and run commands.
 				ex: Force scramble after every round if an info_target is named "TF2M_FORCESCRAMBLE"
@@ -39,25 +41,24 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.9"
+#define PLUGIN_VERSION "0.0.10"
 
 #include <sourcemod>
 #include <morecolors>
 #include <tf2_stocks>
 #include <sdkhooks>
 #include <feedback2>
+#include <clientprefs>
 //#include <sdktools>
-//#include <clientprefs>
 //#include <tf2>
-
-#define BoolValue_False 0
-#define BoolValue_True 1
-#define BoolValue_Null -1
 
 //Sounds
 #define SOUND_HINTSOUND "/ui/hint.wav"
 #define SOUND_WARNSOUND "/ui/system_message_alert.wav"
 #define SOUND_QUACK "ambient/bumper_car_quack1.wav"
+
+
+#define FBWALKSPEED_MIN 200.0
 
 //#define EndRoundDraw
 
@@ -97,6 +98,7 @@ new bool:ForceNextRoundTest = false; //Next win. Enter test mode, If enough time
 new bool:FeedbackModeActive = false;//After the last round has ended, if no time is left, enter test mode.
 new bool:ForceFBRoundStarted = false;//Failsafe: Stop recalls from happening, incase sourcemod stuffs us.
 new bool:ShowFeedbackRoundHud = false;
+new EndOfRoundFlags = FBFLAG_DEFAULTVALUE;
 //new bool:IsMapLoaded = false;//Might come in use later on.
 
 //HUD stuff
@@ -151,6 +153,10 @@ enum CollisionGroup
 	COLLISION_GROUP_NPC_ACTOR,        // Used so NPCs in scripts ignore the player.
 }
 
+/* Cookies */
+new Handle:clFbRoundWalkSpeed = INVALID_HANDLE;
+new Float:FbRoundWalkSpeed[MAXPLAYERS + 1] = 0.0;
+
 public void OnPluginStart()
 {
 	//COMMENT OUT DEBUG AT THE TOP OF THE DOC TO AVOID THIS
@@ -201,6 +207,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_fbspawn", Menu_SpawnTest, "Jump to a spawn point on the map.");
 	RegConsoleCmd("sm_fbspawns", Menu_SpawnTest, "Jump to a spawn point on the map.");
 	RegConsoleCmd("sm_fbrh", Command_FBround_Help, "Tellme tellme.");
+	RegConsoleCmd("sm_fbwalkspeed", Command_FbWalkspeed, "Change your walk speed during a fb round (HU)");
 	
 	#if defined DEBUG
 	RegConsoleCmd("sm_fbquack", Command_FBQuack, "The characteristic harsh sound made by a duck");
@@ -223,6 +230,9 @@ public void OnPluginStart()
 	CreateNative("FB2_ForceNextRoundTest", Native_ForceNextRoundTest);
 	CreateNative("FB2_EndMapFeedbackModeActive", Native_EndMapFeedBackModeActive);
 	CreateNative("FB2_ForceCancelRound_StartFBRound", Native_ForceCancelRoundStartFBRound);
+	CreateNative("FB2_ForceFbRoundLastRound", Native_ForceFbRoundLastRound);
+	
+	clFbRoundWalkSpeed = RegClientCookie("fb_PlayerWalkSpeed", "The players walk speed during fb rounds.", CookieAccess_Protected);
 	
 }
 public OnConfigsExecuted()
@@ -239,6 +249,16 @@ public OnConfigsExecuted()
 public Native_IsFbRoundActive(Handle:plugin, numParams)
 {
     return IsTestModeActive;
+}
+public Native_ForceFbRoundLastRound(Handle:plugin, numParams)
+{
+	bool isFbRoundLastRound = GetNativeCell(1);
+	if(isFbRoundLastRound)
+		EndOfRoundFlags = EndOfRoundFlags | FBFLAG_FORCELASTROUND;//Set true
+	else
+		EndOfRoundFlags = EndOfRoundFlags &~ FBFLAG_FORCELASTROUND;//Set false
+	
+	return isFbRoundLastRound;
 }
 public Native_ForceNextRoundTest(Handle:plugin, numParams)
 {
@@ -407,7 +427,7 @@ public void OnMapEnd()
 	//Re-ACTIVATE RTV!!!
 	PauseRTV(false);
 	ResetAlltalk();
-	
+	EndOfRoundFlags = FBFLAG_DEFAULTVALUE;
 }
 /*
 	Use: Resets alltalk
@@ -770,7 +790,7 @@ public Action CountdownTimer(Handle timer, any serial)
 	
 	if(FeedbackTimer == 0)
 	{
-		if(GetMapTimeLeftInt() <= ReturnExpectedDowntime())//time expired, nextmap.
+		if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || EndOfRoundFlags & FBFLAG_FORCELASTROUND)//time expired, nextmap.
 		{
 			new String:mapString[256] = "cp_dustbowl";//If no nextmap, dustbowl
 			GetNextMap(mapString, sizeof(mapString));
@@ -794,7 +814,7 @@ public Action CountdownTimer(Handle timer, any serial)
 void FeedbackTimerExpired()
 {
 	ResetAlltalk();
-	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime())//load next map.
+	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || EndOfRoundFlags & FBFLAG_FORCELASTROUND)//load next map.
 	{
 		new String:mapString[256] = "cp_dustbowl";//If no nextmap, dustbowl
 		GetNextMap(mapString, sizeof(mapString));
@@ -854,8 +874,32 @@ void UpdateHud(client)
 	SetHudTextParams(-1.0, 0.80, 1.25, 198, 145, 65, 255); //Vsh hud location
 	ShowSyncHudText(client, feedbackHUD, "| Time left %s |", CurrentTime());//Current time is below, Super suspect thing i wrote like 2 years ago lol.
 }
+public OnGameFrame()
+{
+	//Quick and dirty implementation
+	if(IsTestModeActive)
+	{
+		for(int iClient = 0; iClient <= MaxClients; iClient++)
+		{
+			if(IsValidClient(iClient) && FbRoundWalkSpeed[iClient] > FBWALKSPEED_MIN)//if a walk speed is loaded
+			{
+				SetEntPropFloat(iClient, Prop_Send, "m_flMaxspeed", FbRoundWalkSpeed[iClient]);
+			}
+		}
+	}
+}
+
+public OnClientCookiesCached(client)
+{
+	//Load cookie
+	decl String: sCookieValue[128];
+	GetClientCookie(client, clFbRoundWalkSpeed, sCookieValue, 128);
+	FbRoundWalkSpeed[client] = StringToFloat(sCookieValue);
+}
 public OnClientDisconnect(int client)
 {
+	FbRoundWalkSpeed[client] = FBWALKSPEED_MIN;
+
 	//Cleanup after users.
 	int countplayers = 0;
 	for(int iClient = 0; iClient <= MaxClients; iClient++)
@@ -1064,7 +1108,7 @@ public Action:Command_FB_Round_Enabled(int client, int args)
 }
 public Action:Command_Fb_AddTime(int client, int args)
 {
-	if (args < 1)// client didnt give enough arguements.
+	if (args < 2)// client didnt give enough arguements.
 	{
 		RespondToAdminCMD(client, "Usage: sm_fb_addtime <number>");
 		return Plugin_Handled;
@@ -1177,6 +1221,36 @@ public int MenuHandler1(Menu menu, MenuAction action, int param1, int param2)
         delete menu;
     }
 }
+/* Change FB round walk speed */
+public Action Command_FbWalkspeed(int client, int args)
+{
+	if (args < 1)// client didnt give enough arguements.
+	{
+		RespondToAdminCMD(client, "Usage: sm_fbwalkspeed <number>");
+		return Plugin_Handled;
+	}
+	char arg1[32];
+	GetCmdArg(1, arg1, sizeof(arg1));
+	float clSpeed = StringToFloat(arg1);
+	if(clSpeed == 0.0)//Error
+	{
+		RespondToAdminCMD(client, "Usage: sm_fbwalkspeed <number>");
+	}
+	else if(clSpeed < FBWALKSPEED_MIN)
+	{
+		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number higher than %f", FBWALKSPEED_MIN);
+	}
+	else if(IsValidClient(client))
+	{
+		CReplyToCommand(client, "{gold}[Feedback]{default} Set speed to %f", clSpeed);
+		//Convert float to string, set string.
+		decl String:sCookieValue[16];
+		FloatToString(clSpeed, sCookieValue, sizeof(sCookieValue));
+		SetClientCookie(client,  clFbRoundWalkSpeed, sCookieValue);
+		FbRoundWalkSpeed[client] = clSpeed;
+	}
+	return Plugin_Handled;
+}
 /* FBHelp command */
 public Action Command_FBround_Help(int client, int args)
 {
@@ -1229,7 +1303,7 @@ void ShowClientTPPage(client)
 	}
 	
 	menu.ExitButton = false;
-	menu.Display(client, 20);
+	menu.Display(client, MENU_TIME_FOREVER);
 }
 /*
 	Use: Create the spawn point array.
