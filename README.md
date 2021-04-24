@@ -42,4 +42,7 @@ Feedback round plugin developed for TF2Maps by PigPig.
         - During a feedback round, the player can teleport to all unique spawn names.
 
 `sm_fbrh`
-        - Help menu for normal players 
+        - Prints helpful commands to the caller
+
+`sm_fbwalkspeed <speed>`
+        - Sets your walk speed during a FB Round
