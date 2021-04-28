@@ -24,7 +24,7 @@ Feedback round plugin developed for TF2Maps by PigPig.
 `sm_fbnextround`
         - Toggle if the next round will be a FB round. 1 and 0 are accepted.
 
-`sm_fbround_forceend`
+`sm_fbend`
         - Force end an FB round
 
 `sm_fbtimer <add/set> <time to add>`
