@@ -41,7 +41,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.10"
+#define PLUGIN_VERSION "0.0.11"
 
 #include <sourcemod>
 #include <morecolors>
@@ -271,7 +271,7 @@ public Native_EndMapFeedBackModeActive(Handle:plugin, numParams)
 	{
 		fbEndOfMap = GetMapForceFeedbackLastRound();
 	}
-	return FeedbackModeActive;
+	return fbEndOfMap;
 }
 public Native_ForceCancelRoundStartFBRound(Handle:plugin, numParams)
 {
@@ -468,7 +468,6 @@ int GetMapTimeLeftInt()
 */
 bool GetMapForceFeedbackLastRound()
 {
-	bool IsMapFBmap = false;
 	if(cvarList[FB_CVAR_ALLOWMAP_SETTINGS].IntValue <= 0)
 		return false;//Stop, we are false.
 	
@@ -478,9 +477,9 @@ bool GetMapForceFeedbackLastRound()
 		decl String:entName[50];
 		GetEntPropString(ent, Prop_Data, "m_iName", entName, sizeof(entName));//Get ent name.
 		if(StrEqual(entName, "TF2M_ForceLastRoundFeedback",true))//true, we care about caps.
-			IsMapFBmap = true;
+			return true;//break
 	}
-	return IsMapFBmap;
+	return false;
 }
 
 public Action:Event_Teamplay_RoundActive(Handle:event,const String:name[],bool:dontBroadcast)
@@ -507,7 +506,7 @@ public Action:Event_Round_End(Handle:event,const String:name[],bool:dontBroadcas
 {
 	if(!GetMapForceFeedbackLastRound())//if we dont find a map forced round,
 	{
-		if(!FeedbackModeActive && !ForceNextRoundTest)//If FB mode is not active, stop.
+		if(!FeedbackModeActive && !ForceNextRoundTest)//If FB mode is not active, and next round test is not active
 			return;
 	}
 	
@@ -587,11 +586,28 @@ public SetCVAR_SILENT(String:CVAR_NAME[], int INTSET)
 	
 	SetConVarInt(FindConVar(CVAR_NAME),INTSET);
 }
+void FbMapOverrideListings()
+{
+	if(cvarList[FB_CVAR_ALLOWMAP_SETTINGS].IntValue <= 0)
+		return;
+
+	decl String:OverrideString[256];
+	decl String:ModString[256] = "";
+	Format(OverrideString, sizeof(OverrideString), "------------------------ \n{gold}[Feedback]{default} ~ Map applies these attributes: %s",ModString);
+	if(GetMapForceFeedbackLastRound())//If we find a end of round fb node. Add to list.
+		Format(ModString, sizeof(ModString), "%s \n {gold}>{default}End map Map FB round",ModString);
+		
+	
+	if(!StrEqual(ModString, ""))//if there are mods.
+		CPrintToChatAll(OverrideString);//Tell everyone about test mode.
+}
 /*
 	Use: Round start
 */
 public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadcast)
 {
+
+	FbMapOverrideListings();
 	if(MapTimeStorage != -1)//if there is a map time stored.
 	{
 		int MapTimeDistance = MapTimeStorage - GetMapTimeLeftInt();
@@ -645,7 +661,7 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	//This creates edgecases that i want to avoid.
 	//Cant find any other way about it, Please someone help.
 	
-	
+	/*
 	bool IsPlayerDestruction = false;
 	//CTF patch
 	ent = -1;
@@ -662,29 +678,19 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 			//AcceptEntityInput(ent, "kill");
 			isCTF = true;//We are playing ctf i guess?
 		}
-		if(isCTF)
-		{
-			/*	Ok What we are doing here is basically finding if there is a teamflag.
-				If there is no player destruction logic, it is liekley CTF.
-				We cant apply cases for every tf2map. So this system wont 100% work.
-				Like if someone makes a custom gamemode this might go haywire???
-				We will find out when we get there. :/
-				*/
-			ent = -1;
-			while ((ent = FindEntityByClassname(ent, "tf_gamerules")) != -1)
-			{
-				new String:addoutput[64];
-				Format(addoutput, 64, "OnUser1 !self:SetStalemateOnTimelimit:0.0:1:1");//On user 1, disable stalemate on map end.
-				SetVariantString(addoutput);//SM setup
-				AcceptEntityInput(ent, "AddOutput");//Sm setup of previous command
-				AcceptEntityInput(ent, "FireUser1");//Swing
-				
-				//I do not like this.
-				//ONLY HERE FOR TESTING
-				//ok...
-			}
-		}
 	}
+	*/
+	
+	ent = -1;
+	while ((ent = FindEntityByClassname(ent, "tf_gamerules")) != -1)
+	{
+		new String:addoutput[64];
+		Format(addoutput, 64, "OnUser1 !self:SetStalemateOnTimelimit:0.0:1:1");//On user 1, disable stalemate on map end.
+		SetVariantString(addoutput);//SM setup
+		AcceptEntityInput(ent, "AddOutput");//Sm setup of previous command
+		AcceptEntityInput(ent, "FireUser1");//Swing
+	}
+	
 	//Dampen respawnroom visualizers.
 	ent = -1;
 	while ((ent = FindEntityByClassname(ent, "func_respawnroomvisualizer")) != -1)
@@ -900,19 +906,7 @@ public OnClientDisconnect(int client)
 {
 	FbRoundWalkSpeed[client] = FBWALKSPEED_MIN;
 
-	//Cleanup after users.
-	int countplayers = 0;
-	for(int iClient = 0; iClient <= MaxClients; iClient++)
-	{
-		if(IsValidClient(iClient))//Real players
-		{
-			if(!IsFakeClient(iClient))//VERY REAL PLAYERS
-			{
-				countplayers++;
-			}
-		}
-	}
-	if(countplayers <= 0)
+	if(GetClientCount(false) <= 0)//False means count connecting players.
 	{
 		FeedbackModeActive = false;
 		ForceNextRoundTest = false;
@@ -1168,7 +1162,7 @@ public Action:Command_Fb_Cancel_Round(int client, int args)
 	if(IsTestModeTriggered)
 	{
 		RespondToAdminCMD(client, "Skipping FB round.");
-		FeedbackTimer = -4;//Skip in 1 second.
+		FeedbackTimer = -4;
 	}
 	else
 	{
