@@ -41,14 +41,19 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.11"
+#define PLUGIN_VERSION "0.0.12"
+
 
 #include <sourcemod>
 #include <morecolors>
 #include <tf2_stocks>
 #include <sdkhooks>
-#include <feedback2>
 #include <clientprefs>
+
+#define REQUIRE_PLUGIN
+#include <feedback2>
+#undef REQUIRE_PLUGIN
+
 //#include <sdktools>
 //#include <tf2>
 
@@ -59,6 +64,7 @@
 
 
 #define FBWALKSPEED_MIN 200.0
+#define FBWALKSPEED_MAX 512.0
 
 //#define EndRoundDraw
 
@@ -82,7 +88,19 @@ public Plugin myinfo =
 	version = PLUGIN_VERSION,
 	url = "None, Sorry."
 };
-
+public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
+{
+	/* Natives */
+	//If in the future anyone else comes in to write a plugin that has to navigate around this one, these should help
+	CreateNative("FB2_IsFbRoundActive", Native_IsFbRoundActive);
+	CreateNative("FB2_ForceNextRoundTest", Native_ForceNextRoundTest);
+	CreateNative("FB2_EndMapFeedbackModeActive", Native_EndMapFeedBackModeActive);
+	CreateNative("FB2_ForceCancelRound_StartFBRound", Native_ForceCancelRoundStartFBRound);
+	CreateNative("FB2_ForceFbRoundLastRound", Native_ForceFbRoundLastRound);	
+	
+	RegPluginLibrary("feedback2");
+	return APLRes_Success;
+}
 static const String:SplashText[][] = {
 	"TF2 REQUIRES 3D GLASSES TO PLAY",
 	"Hopfully something actually changed...", 
@@ -177,7 +195,6 @@ public void OnPluginStart()
 	
 	//Round start
 	HookEvent("teamplay_round_start", Event_Round_Start);
-	
 	//Death and respawning
 	HookEvent("player_spawn", Event_Player_Spawn);
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
@@ -224,13 +241,6 @@ public void OnPluginStart()
 	
 	PopulateSpawnList();
 	
-	/* Natives */
-	//If in the future anyone else comes in to write a plugin that has to navigate around this one, these should help
-	CreateNative("FB2_IsFbRoundActive", Native_IsFbRoundActive);
-	CreateNative("FB2_ForceNextRoundTest", Native_ForceNextRoundTest);
-	CreateNative("FB2_EndMapFeedbackModeActive", Native_EndMapFeedBackModeActive);
-	CreateNative("FB2_ForceCancelRound_StartFBRound", Native_ForceCancelRoundStartFBRound);
-	CreateNative("FB2_ForceFbRoundLastRound", Native_ForceFbRoundLastRound);
 	
 	clFbRoundWalkSpeed = RegClientCookie("fb_PlayerWalkSpeed", "The players walk speed during fb rounds.", CookieAccess_Protected);
 	
@@ -482,6 +492,7 @@ bool GetMapForceFeedbackLastRound()
 	return false;
 }
 
+
 public Action:Event_Teamplay_RoundActive(Handle:event,const String:name[],bool:dontBroadcast)
 {
 	if(IsTestModeActive)
@@ -593,11 +604,11 @@ void FbMapOverrideListings()
 
 	decl String:OverrideString[256];
 	decl String:ModString[256] = "";
-	Format(OverrideString, sizeof(OverrideString), "------------------------ \n{gold}[Feedback]{default} ~ Map applies these attributes: %s",ModString);
 	if(GetMapForceFeedbackLastRound())//If we find a end of round fb node. Add to list.
 		Format(ModString, sizeof(ModString), "%s \n {gold}>{default}End map Map FB round",ModString);
 		
-	
+	Format(OverrideString, sizeof(OverrideString), "------------------------ \n{gold}[Feedback]{default} ~ Map applies these attributes: %s",ModString);
+
 	if(!StrEqual(ModString, ""))//if there are mods.
 		CPrintToChatAll(OverrideString);//Tell everyone about test mode.
 }
@@ -904,7 +915,7 @@ public OnClientCookiesCached(client)
 }
 public OnClientDisconnect(int client)
 {
-	FbRoundWalkSpeed[client] = FBWALKSPEED_MIN;
+	FbRoundWalkSpeed[client] = 0.0;
 
 	if(GetClientCount(false) <= 0)//False means count connecting players.
 	{
@@ -1232,11 +1243,15 @@ public Action Command_FbWalkspeed(int client, int args)
 	}
 	else if(clSpeed < FBWALKSPEED_MIN)
 	{
-		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number higher than %f", FBWALKSPEED_MIN);
+		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number higher than %0.1f", FBWALKSPEED_MIN);
+	}
+	else if(clSpeed > FBWALKSPEED_MAX)
+	{
+		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number lower than %0.1f", FBWALKSPEED_MAX);
 	}
 	else if(IsValidClient(client))
 	{
-		CReplyToCommand(client, "{gold}[Feedback]{default} Set speed to %f", clSpeed);
+		CReplyToCommand(client, "{gold}[Feedback]{default} Set speed to %0.1f", clSpeed);
 		//Convert float to string, set string.
 		decl String:sCookieValue[16];
 		FloatToString(clSpeed, sCookieValue, sizeof(sCookieValue));
