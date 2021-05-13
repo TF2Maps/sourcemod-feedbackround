@@ -1,5 +1,5 @@
 //EDITED FOR FEEDBACK2 PLUGIN.
-//0.0.2
+//0.0.3
 /**
  * vim: set ts=4 :
  * =============================================================================
@@ -35,7 +35,10 @@
 
 #include <sourcemod>
 #include <mapchooser>
-#include <feedback2>
+
+#undef REQUIRE_PLUGIN
+#tryinclude <feedback2>
+
 #include <nextmap>
 
 #pragma semicolon 1
@@ -48,6 +51,7 @@ public Plugin myinfo =
 	version = SOURCEMOD_VERSION,
 	url = "http://www.sourcemod.net/"
 };
+
 
 ConVar g_Cvar_Needed;
 ConVar g_Cvar_MinPlayers;
@@ -65,6 +69,7 @@ bool g_Voted[MAXPLAYERS+1] = {false, ...};
 
 bool g_InChange = false;
 bool g_RTVPaused = false;
+bool g_IsFbPluginLoaded = false;
 
 public void OnPluginStart()
 {
@@ -86,6 +91,34 @@ public void OnPluginStart()
 	RegAdminCmd("sm_resetrtv", Command_ResetRTV, ADMFLAG_KICK, "Resets RTV");
 
 }
+
+/* FEEDBACK TUMOR MODE ACTIVATED! */
+public OnAllPluginsLoaded()
+{
+    g_IsFbPluginLoaded = LibraryExists("feedback2");
+}
+public OnLibraryAdded(const String:name[])
+{
+    SetPluginDetection(name, true);
+}
+
+public OnLibraryRemoved(const String:name[])
+{
+    SetPluginDetection(name, false);
+}
+SetPluginDetection(const String:name[], bool:bBool)
+{
+    if (StrEqual(name, "feedback2"))
+    {
+		if(bBool)//True
+			PrintToServer("RTV PLUGIN: Detected FB plugin loading.");
+		else
+			PrintToServer("RTV PLUGIN: Detected FB plugin unloading.");
+			
+		g_IsFbPluginLoaded = bBool;
+    }
+}
+
 public Action:Command_PauseRTV(int client, int args)
 {
 	if (args < 1)
@@ -273,18 +306,19 @@ public Action Timer_DelayRTV(Handle timer)
 void StartRTV()
 {
 	/* FB round block */
-	if(!FB2_IsFbRoundActive())//FB ROUND IS NOT ACTIVE, ENTER.
+	if(g_IsFbPluginLoaded)
 	{
-		if(FB2_ForceNextRoundTest() || FB2_EndMapFeedbackModeActive())//If FB mode is set for end of map/ end of round. ENTER!
+		if(!FB2_IsFbRoundActive())//FB ROUND IS NOT ACTIVE, ENTER.
 		{
-			//Run over to the FB plugin.
-			FB2_ForceFbRoundLastRound(true);//Force last round.
-			FB2_ForceCancelRound_StartFBRound();
-			return;
+			if(FB2_ForceNextRoundTest() || FB2_EndMapFeedbackModeActive())//If FB mode is set for end of map/ end of round. ENTER!
+			{
+				//Run over to the FB plugin.
+				FB2_ForceFbRoundLastRound(true);//Force last round.
+				FB2_ForceCancelRound_StartFBRound();
+				return;
+			}
 		}
 	}
-	
-
 	if (g_InChange)
 	{
 		return;	
