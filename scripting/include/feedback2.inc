@@ -43,3 +43,24 @@ native FB2_ForceCancelRound_StartFBRound();
  */
 native FB2_ForceFbRoundLastRound(bool StartFbRound);
 
+
+public SharedPlugin __pl_feedback2 = 
+{
+	name = "feedback2",
+	file = "feedback2.smx",
+#if defined REQUIRE_PLUGIN
+	required = 1,
+#else
+	required = 0,
+#endif
+};
+#if !defined REQUIRE_PLUGIN
+public __pl_feedback2_SetNTVOptional()
+{
+	MarkNativeAsOptional("FB2_IsFbRoundActive");
+	MarkNativeAsOptional("FB2_ForceNextRoundTest");
+	MarkNativeAsOptional("FB2_EndMapFeedbackModeActive");
+	MarkNativeAsOptional("FB2_ForceCancelRound_StartFBRound");
+	MarkNativeAsOptional("FB2_ForceFbRoundLastRound");
+}
+#endif
