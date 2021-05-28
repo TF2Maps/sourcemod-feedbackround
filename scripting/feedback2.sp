@@ -41,7 +41,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.12"
+#define PLUGIN_VERSION "0.0.13"
 
 
 #include <sourcemod>
@@ -117,7 +117,7 @@ new bool:FeedbackModeActive = false;//After the last round has ended, if no time
 new bool:ForceFBRoundStarted = false;//Failsafe: Stop recalls from happening, incase sourcemod stuffs us.
 new bool:ShowFeedbackRoundHud = false;
 new EndOfRoundFlags = FBFLAG_DEFAULTVALUE;
-//new bool:IsMapLoaded = false;//Might come in use later on.
+new bool:IsMapLoaded = false;//Might come in use later on.
 
 //HUD stuff
 new Handle:feedbackHUD;
@@ -343,22 +343,12 @@ void SetPlayerFBMode(client, bool fbmode)
 		TF2_AddCondition(client, AppliedUber, 10000000000.0);//Add uber for a long time
 		SetEntProp(client, Prop_Send, "m_CollisionGroup", COLLISION_GROUP_DEBRIS_TRIGGER);//Remove collisions
 		SetEntProp(client, Prop_Data, "m_CollisionGroup", COLLISION_GROUP_DEBRIS_TRIGGER);
-		//Block sentries and airblas from touching player
-		
-		//One thing to note, FL_NOTARGET causes problems while the player resupplies
-		//So if they change weapon they will not get the weapon because they are not a viable target
-		//If this becomes a major problem, I will rewrite the plugin to switch in and out of notarget when needed.
-		new flags = GetEntityFlags(client)|FL_NOTARGET;//flip flag on
-		SetEntityFlags(client, flags);
 	}
 	else
 	{
 		TF2_RemoveCondition(client,AppliedUber);
 		SetEntProp(client, Prop_Send, "m_CollisionGroup", COLLISION_GROUP_PLAYER);//Add back collisions
 		SetEntProp(client, Prop_Data, "m_CollisionGroup", COLLISION_GROUP_PLAYER);
-		//Block sentries and airblas from touching player
-		new flags = GetEntityFlags(client)&~FL_NOTARGET;//flip flag off
-		SetEntityFlags(client, flags);
 	}
 }
 /*
@@ -416,14 +406,14 @@ public Action ResetTimeLimit(Handle timer, any serial)
 */
 public OnMapStart()
 {
-	//IsMapLoaded = true;
+	IsMapLoaded = true;
 }
 /*
 	Use: On map end, Reset everything.
 */
 public void OnMapEnd()
 {
-	//IsMapLoaded = false;
+	IsMapLoaded = false;
 	IsTestModeTriggered = false;
 	IsTestModeActive = false;
 	ForceNextRoundTest = false;
@@ -553,19 +543,82 @@ public OnEntityCreated(entity, const String:classname[])
 {		
 	if(!IsTestModeTriggered)//only run during fb round.
 		return;
+		//TODO: Test if this causes lag on fbround demos
 	if(StrEqual(classname, "tf_projectile_pipe"))
 	{
 		SDKHook(entity, SDKHook_SpawnPost, Pipe_Spawned_post);
 	}
-	if(StrEqual(classname, "tf_projectile_jar"))
+	if(StrEqual(classname, "obj_sentrygun"))
 	{
 		AcceptEntityInput(entity,"Kill");
+	}
+}
+/*
+	Use: With the removal of tpose, we add jarate jumping.
+		Bet you didn't know someone could love you this much.
+		-pigpig
+*/
+public OnEntityDestroyed(entity)
+{
+	if(!IsTestModeTriggered)//only run during fb round.
+		return;
+
+	decl String:classname[64];
+	if(IsValidEntity(entity))
+		GetEntityClassname(entity, classname, sizeof(classname));
+	if(StrEqual(classname, "tf_projectile_jar",false) || StrEqual(classname, "tf_projectile_jar_milk",false) || StrEqual(classname, "tf_projectile_jar_gas",false))//Someone said to remove jarate throwing during FB rounds, its 2am, why not right?
+	{
+		if(!IsMapLoaded)
+			return;
+		/*
+			Get distance vector
+			Normalize
+			Scale by knockback value
+		*/
+		new thrower = GetEntPropEnt(entity, Prop_Data, "m_hThrower");
+		if(IsValidClient(thrower) && IsPlayerAlive(thrower))//apply kb
+		{
+			//Get values
+			new Float:curVec[3];new Float:cl_location[3];new Float:JarLocation[3];
+			GetEntPropVector(entity, Prop_Send, "m_vecOrigin", JarLocation);	
+			GetEntPropVector(thrower, Prop_Data, "m_vecVelocity", curVec);//If we want to add to their velocity rather than set it.
+			GetClientAbsOrigin(thrower, cl_location);
+			
+			// 3D Distance
+			for(int axi = 0; axi < 3; axi++)
+				cl_location[axi] -= JarLocation[axi];
+			// 1D Distance
+			new Float:Distance = GetVectorLength(cl_location);
+			//le hard coded values xdddd111
+			if(Distance < 240.0)//if our 1d distance is close enough
+			{
+				//Normalize vector.
+				NormalizeVector(cl_location,cl_location);
+
+				//Scale the vector to our desired value.
+				ScaleVector(cl_location, 600.0);
+				
+				if(StrEqual(classname, "tf_projectile_jar_gas",false))//make gas jumps super fat
+					ScaleVector(cl_location, 3.0);
+				
+				if(cl_location[2] < 280.0)//Set their y axis to up.
+					cl_location[2] = 280.0;
+				
+				//Add to velocity
+				for(int axi = 0; axi < 3; axi++)
+					cl_location[axi] += curVec[axi];
+				//EXECUTE
+				TeleportEntity(thrower, NULL_VECTOR, NULL_VECTOR, cl_location);
+			}
+		}
 	}
 }
 /*
 	Use: Get pipe 1 tick after spawned.
 		We cannot get the owner of the pipe because valve has not set them yet.
 		So we wait.
+		
+		We do this implementation so players can still cannonjump, this just blocks them from knocking people around.
 */
 public void Pipe_Spawned_post(int Pipe)
 {
@@ -667,34 +720,21 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		AcceptEntityInput(ent, "unlock");
 		AcceptEntityInput(ent, "Open");
 	}
-	/*			GAMEMODE CHECKS				*/
-	//TODO: Find a way to not use OnFireUser1
-	//This creates edgecases that i want to avoid.
-	//Cant find any other way about it, Please someone help.
-	
-	/*
-	bool IsPlayerDestruction = false;
-	//CTF patch
-	ent = -1;
-	while ((ent = FindEntityByClassname(ent, "tf_logic_player_destruction")) != -1)//if we find PD logic. set bool true.
+	ent = -1;//Open all areaportals, Untested of course.
+	while ((ent = FindEntityByClassname(ent, "func_areaportal")) != -1)
 	{
-		IsPlayerDestruction = true;
+		AcceptEntityInput(ent, "Open");
 	}
-	if(!IsPlayerDestruction)//if no PD logic, check for ctf.
-	{
-		bool isCTF = false;
-		ent = -1;
-		while ((ent = FindEntityByClassname(ent, "item_teamflag")) != -1)//If we find a teamflag, set the bool true, kill the flag.
-		{
-			//AcceptEntityInput(ent, "kill");
-			isCTF = true;//We are playing ctf i guess?
-		}
-	}
-	*/
+	/*			GAMEMODE CHECKS				*/	
 	
 	ent = -1;
 	while ((ent = FindEntityByClassname(ent, "tf_gamerules")) != -1)
 	{
+		/*
+			We delay by 1 second here, every one of these maps SetStalemateOnTimelimit at the start of the round, so we need to be slower.
+			
+		*/
+		
 		new String:addoutput[64];
 		Format(addoutput, 64, "OnUser1 !self:SetStalemateOnTimelimit:0.0:1:1");//On user 1, disable stalemate on map end.
 		SetVariantString(addoutput);//SM setup
@@ -706,8 +746,10 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	ent = -1;
 	while ((ent = FindEntityByClassname(ent, "func_respawnroomvisualizer")) != -1)
 	{
-		//Please god save me from this travesty 
-		//There should be no need for me to override user1
+		
+		SetVariantBool(false);
+		AcceptEntityInput(ent, "SetSolid");
+		/*
 		//Tried "m_iSolidity" and "m_bSolid".
 		//both give errors. So here we are overriding user1...
 		//I Don't want to kill them because i want enemies to think "Oh, i usually wouldnt be able to enter this door."
@@ -716,6 +758,7 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		SetVariantString(addoutput);//SM setup
 		AcceptEntityInput(ent, "AddOutput");//Sm setup of previous command
 		AcceptEntityInput(ent, "FireUser1");//Swing
+		*/
 	}
 	//Allow players through enemy doors, and to trigger enemy filtered triggers.
 	
@@ -723,20 +766,6 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	while ((ent = FindEntityByClassname(ent, "filter_activator_tfteam")) != -1)
 	{
 		AcceptEntityInput(ent,"Kill");
-		//I tried all below, they did not work.
-		//Only killing worked. :/
-		//TODO: Find better solution. Why is this not working!?!?
-		//
-		/*
-		SetEntProp(ent,Prop_Data,"m_iInitialTeamNum", 1);//Set team to neutral
-		SetEntProp(ent,Prop_Data,"m_iTeamNum", 1);//Set team to neutral
-		
-		new String:addoutput[64];
-		Format(addoutput, 64, "OnUser1 !self:SetTeam:1:1:1");//On user 1 setsolid 0
-		SetVariantString(addoutput);//SM setup
-		AcceptEntityInput(ent, "AddOutput");//Sm setup of previous command
-		AcceptEntityInput(ent, "FireUser1");//Swing
-		*/
 	}
 	ent = -1;
 	while ((ent = FindEntityByClassname(ent, "tf_logic_player_destruction")) != -1)//Find and kill the pass logic
@@ -905,7 +934,31 @@ public OnGameFrame()
 		}
 	}
 }
-
+public Action:OnPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:angles[3], &weapon)
+{
+	if(!IsTestModeActive)
+		return Plugin_Continue;
+		
+	if(IsValidClient(client) && buttons & IN_ATTACK2)
+	{
+		if(TF2_GetPlayerClass(client) == TFClass_Pyro)//Block them from airblasting.
+		{		
+			new ActiveItem = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+			if(IsValidEntity(ActiveItem))
+			{
+				decl String:cname[64];
+				GetEntityClassname(ActiveItem, cname, 64);
+				if(StrEqual(cname, "tf_weapon_flamethrower", false) || StrEqual(cname, "tf_weapon_rocketlauncher_fireball", false))//if their primary is loose cannon.
+				{
+					buttons &= ~IN_ATTACK2;
+					return Plugin_Continue;
+				}
+			}
+		}
+	}
+	
+	return Plugin_Continue;
+}
 public OnClientCookiesCached(client)
 {
 	//Load cookie
@@ -1313,7 +1366,7 @@ void ShowClientTPPage(client)
 	
 	menu.ExitButton = false;
 	menu.Display(client, MENU_TIME_FOREVER);
-}
+} 
 /*
 	Use: Create the spawn point array.
 */
