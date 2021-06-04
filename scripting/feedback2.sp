@@ -1318,7 +1318,7 @@ public Action Command_FBround_Help(int client, int args)
 {
 	if(IsValidClient(client))
 	{
-		CPrintToChat(client, "---------{gold}[Feedback Help]{default}---------\n {gold}Commands{default} : \n >fbspawn | Teleport to a list of unique spawn locations. \n >fbtellents | Print map edict count.");
+		CPrintToChat(client, "---------{gold}[Feedback Help]{default}---------\n {gold}Commands{default} : \n >fbspawn | Teleport to a list of unique spawn locations. \n >fbtellents | Print map edict count. \n >fbwalkspeed | Set your walking speed between 200 and 512.");
 	}
 }
 /* Debug command */
