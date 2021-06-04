@@ -41,7 +41,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.13"
+#define PLUGIN_VERSION "0.0.14"
 
 
 #include <sourcemod>
@@ -63,8 +63,8 @@
 #define SOUND_QUACK "ambient/bumper_car_quack1.wav"
 
 
-#define FBWALKSPEED_MIN 200.0
-#define FBWALKSPEED_MAX 512.0
+#define walkspeed_MIN 200.0
+#define walkspeed_MAX 512.0
 
 //#define EndRoundDraw
 
@@ -224,7 +224,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_fbspawn", Menu_SpawnTest, "Jump to a spawn point on the map.");
 	RegConsoleCmd("sm_fbspawns", Menu_SpawnTest, "Jump to a spawn point on the map.");
 	RegConsoleCmd("sm_fbrh", Command_FBround_Help, "Tellme tellme.");
-	RegConsoleCmd("sm_fbwalkspeed", Command_FbWalkspeed, "Change your walk speed during a fb round (HU)");
+	RegConsoleCmd("sm_walkspeed", Command_walkspeed, "Change your walk speed during a fb round (HU)");
 	
 	#if defined DEBUG
 	RegConsoleCmd("sm_fbquack", Command_FBQuack, "The characteristic harsh sound made by a duck");
@@ -927,7 +927,7 @@ public OnGameFrame()
 	{
 		for(int iClient = 0; iClient <= MaxClients; iClient++)
 		{
-			if(IsValidClient(iClient) && FbRoundWalkSpeed[iClient] > FBWALKSPEED_MIN)//if a walk speed is loaded
+			if(IsValidClient(iClient) && FbRoundWalkSpeed[iClient] > walkspeed_MIN)//if a walk speed is loaded
 			{
 				SetEntPropFloat(iClient, Prop_Send, "m_flMaxspeed", FbRoundWalkSpeed[iClient]);
 			}
@@ -1280,11 +1280,11 @@ public int MenuHandler1(Menu menu, MenuAction action, int param1, int param2)
     }
 }
 /* Change FB round walk speed */
-public Action Command_FbWalkspeed(int client, int args)
+public Action Command_walkspeed(int client, int args)
 {
 	if (args < 1)// client didnt give enough arguements.
 	{
-		RespondToAdminCMD(client, "Usage: sm_fbwalkspeed <number>");
+		RespondToAdminCMD(client, "Usage: sm_walkspeed <number>");
 		return Plugin_Handled;
 	}
 	char arg1[32];
@@ -1292,15 +1292,15 @@ public Action Command_FbWalkspeed(int client, int args)
 	float clSpeed = StringToFloat(arg1);
 	if(clSpeed == 0.0)//Error
 	{
-		RespondToAdminCMD(client, "Usage: sm_fbwalkspeed <number>");
+		RespondToAdminCMD(client, "Usage: sm_walkspeed <number>");
 	}
-	else if(clSpeed < FBWALKSPEED_MIN)
+	else if(clSpeed < walkspeed_MIN)
 	{
-		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number higher than %0.1f", FBWALKSPEED_MIN);
+		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number higher than %0.1f", walkspeed_MIN);
 	}
-	else if(clSpeed > FBWALKSPEED_MAX)
+	else if(clSpeed > walkspeed_MAX)
 	{
-		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number lower than %0.1f", FBWALKSPEED_MAX);
+		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number lower than %0.1f", walkspeed_MAX);
 	}
 	else if(IsValidClient(client))
 	{
@@ -1318,7 +1318,7 @@ public Action Command_FBround_Help(int client, int args)
 {
 	if(IsValidClient(client))
 	{
-		CPrintToChat(client, "---------{gold}[Feedback Help]{default}---------\n {gold}Commands{default} : \n >fbspawn | Teleport to a list of unique spawn locations. \n >fbtellents | Print map edict count. \n >fbwalkspeed | Set your walking speed between 200 and 512.");
+		CPrintToChat(client, "---------{gold}[Feedback Help]{default}---------\n {gold}Commands{default} : \n >fbspawn | Teleport to a list of unique spawn locations. \n >fbtellents | Print map edict count. \n >walkspeed | Set your walking speed between 200 and 512.");
 	}
 }
 /* Debug command */
