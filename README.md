@@ -44,5 +44,5 @@ Feedback round plugin developed for TF2Maps by PigPig.
 `sm_fbrh`
         - Prints helpful commands to the caller
 
-`sm_fbwalkspeed <speed>`
+`sm_walkspeed <speed>`
         - Sets your walk speed during a FB Round
