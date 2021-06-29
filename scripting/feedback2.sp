@@ -41,7 +41,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.14"
+#define PLUGIN_VERSION "0.0.15"
 
 
 #include <sourcemod>
@@ -63,8 +63,12 @@
 #define SOUND_QUACK "ambient/bumper_car_quack1.wav"
 
 
-#define walkspeed_MIN 200.0
-#define walkspeed_MAX 512.0
+#define WALKSPEED_MIN 200.0
+#define WALKSPEED_MAX 512.0
+
+#define BUILDING_SENTRY 2
+#define BUILDING_DISPENSER 0
+#define BUILDING_TELEPORTER 1
 
 //#define EndRoundDraw
 
@@ -131,6 +135,7 @@ enum
 {
 	FB_CVAR_ALLOTED_TIME,
 	FB_CVAR_DOWNTIME_FORCEFB,
+	FB_CVAR_DOWNTIME_FORCEFB_ARENA,
 	FB_CVAR_ALLOWMAP_SETTINGS,
 	Version
 }
@@ -232,6 +237,7 @@ public void OnPluginStart()
 	
 	cvarList[Version] = CreateConVar("fb2_version", PLUGIN_VERSION, "FB2 Version. DO NOT CHANGE THIS!!! READ ONLY!!!!", FCVAR_NOTIFY|FCVAR_DONTRECORD|FCVAR_CHEAT);
 	cvarList[FB_CVAR_ALLOTED_TIME] = CreateConVar("fb2_time", "120" , "How Long should the timer last? (In seconds)", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
+	cvarList[FB_CVAR_DOWNTIME_FORCEFB_ARENA] = CreateConVar("fb2_triggertime_arena", "60" , "How many seconds left should we trigger an expected map end FOR ARENA MODE", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
 	cvarList[FB_CVAR_DOWNTIME_FORCEFB] = CreateConVar("fb2_triggertime", "300" , "How many seconds left should we trigger an expected map end.", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
 	cvarList[FB_CVAR_ALLOWMAP_SETTINGS] = CreateConVar("fb2_mapcontrol", "1" , "How much control do we give maps over our plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);//false,true.
 	
@@ -293,6 +299,9 @@ public Native_ForceCancelRoundStartFBRound(Handle:plugin, numParams)
 */
 void ForceStartFBRound()
 {
+	if(IsFBRoundBlocked())
+		return;
+
 	if(!ForceFBRoundStarted)//if not started.
 	{
 		PauseRTV(true);//Pause RTV.
@@ -303,6 +312,26 @@ void ForceStartFBRound()
 		ServerCommand("mp_restartgame 1");
 		ForceFBRoundStarted = true;
 	}
+}
+bool IsFBRoundBlocked()
+{
+	/*
+	if(IsArenaMode())
+		return true;
+		*/
+		
+	return false;
+}
+bool IsArenaMode()
+{
+	bool tfArenaFound = false;
+	new ent = -1;
+	while ((ent = FindEntityByClassname(ent, "tf_logic_arena")) != -1)
+	{
+		tfArenaFound = true;
+		break;
+	}
+	return tfArenaFound;
 }
 void PauseRTV(bool isPaused)
 {
@@ -533,6 +562,9 @@ public Action:Event_Round_End(Handle:event,const String:name[],bool:dontBroadcas
 */
 int ReturnExpectedDowntime()
 {
+	if(IsArenaMode())
+	return cvarList[FB_CVAR_DOWNTIME_FORCEFB_ARENA].IntValue;//Arena mode set to 60 seconds till switchmap.
+
 	return cvarList[FB_CVAR_DOWNTIME_FORCEFB].IntValue + 25;
 }
 /*
@@ -548,10 +580,12 @@ public OnEntityCreated(entity, const String:classname[])
 	{
 		SDKHook(entity, SDKHook_SpawnPost, Pipe_Spawned_post);
 	}
+	/*
 	if(StrEqual(classname, "obj_sentrygun"))
 	{
 		AcceptEntityInput(entity,"Kill");
 	}
+	*/
 }
 /*
 	Use: With the removal of tpose, we add jarate jumping.
@@ -670,8 +704,7 @@ void FbMapOverrideListings()
 */
 public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadcast)
 {
-
-	FbMapOverrideListings();
+	/* General */
 	if(MapTimeStorage != -1)//if there is a map time stored.
 	{
 		int MapTimeDistance = MapTimeStorage - GetMapTimeLeftInt();
@@ -679,6 +712,12 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		ExtendMapTimeLimit(MapTimeDistance);//This prints "mp_timelimit" in chat, Why?
 		MapTimeStorage = -1;
 	}
+
+	/* FB round setups */
+	if(IsFBRoundBlocked())
+		return;
+	FbMapOverrideListings();
+	/* Warn players of imminent fb round */
 	
 	if(ForceNextRoundTest)
 	{
@@ -687,9 +726,17 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		ForceNextRoundTest = false;//Expire next round test.
 		ForceFBRoundStarted = false;//We are no longer forcing fb round, its natural now.
 	}
+	if(ForceNextRoundTest || FeedbackModeActive)		//Tell people that FB rounds are a  thing.
+	{
+		if(!IsTestModeTriggered)
+			CPrintToChatAll("\n{gold}[Feedback]{default} ~ Feedback rounds are active!");//Tell everyone about test mode.
+	}
+
 
 	if(!IsTestModeTriggered)//If not test mode, run normally
+	{
 		return;
+	}
 		
 	//Alltalk handle
 	
@@ -822,6 +869,13 @@ public Action CountdownTimer(Handle timer, any serial)
 				UpdateHud(iClient);
 		}
 	}
+	/* Sentry stun stuff */
+	new ent = -1;//Stun all sentry guns
+	while ((ent = FindEntityByClassname(ent, "obj_sentrygun")) != -1)
+	{
+		SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
+	}
+	
 	/*Timer stuff*/
 	if(FeedbackTimer == 30)
 	{
@@ -918,7 +972,7 @@ void UpdateHud(client)
 		//One thing to note is players connecting can be told to draw hud. so checking if they are alive is important.
 		//Can cause error if i remember correctly.
 	SetHudTextParams(-1.0, 0.80, 1.25, 198, 145, 65, 255); //Vsh hud location
-	ShowSyncHudText(client, feedbackHUD, "| Time left %s |", CurrentTime());//Current time is below, Super suspect thing i wrote like 2 years ago lol.
+	ShowSyncHudText(client, feedbackHUD, "| Time left %s |", ConvertFromMicrowaveTime(FeedbackTimer));//Current time is below, Super suspect thing i wrote like 2 years ago lol.
 }
 public OnGameFrame()
 {
@@ -927,7 +981,7 @@ public OnGameFrame()
 	{
 		for(int iClient = 0; iClient <= MaxClients; iClient++)
 		{
-			if(IsValidClient(iClient) && FbRoundWalkSpeed[iClient] > walkspeed_MIN)//if a walk speed is loaded
+			if(IsValidClient(iClient) && FbRoundWalkSpeed[iClient] > WALKSPEED_MIN)//if a walk speed is loaded
 			{
 				SetEntPropFloat(iClient, Prop_Send, "m_flMaxspeed", FbRoundWalkSpeed[iClient]);
 			}
@@ -980,7 +1034,8 @@ public OnClientDisconnect(int client)
 	Use: Countdown timer from microwave seconds to human seconds.
 		There has to be a way to do this normally in SM. Just too lazy to look rn.
 */
-String:CurrentTime()
+/*
+String:ConvertFromMicrowaveTime()
 {
 	int minutes = 0;
 	int seconds = FeedbackTimer;
@@ -999,6 +1054,28 @@ String:CurrentTime()
 	Format(time, 512, "%i:%s",minutes, secondsString);
 	return time;
 }
+*/
+String:ConvertFromMicrowaveTime(int tSeconds)
+{
+	//Get seconds
+	int minutes = tSeconds / 60;
+	int seconds = tSeconds % 60;
+	//Create string
+	/*
+		This is so whe don't get something like 1:1 Where there is 1 minute 1 seconds left, Instead we want to get 1:01
+	*/
+	new String:secondsString[32] = "Failed";
+	
+	Format(secondsString,strlen(secondsString), "0%i", seconds);
+	if(seconds >= 10)
+		Format(secondsString,strlen(secondsString), "%i", seconds);
+
+	new String:time[512];
+	Format(time, 512, "%i:%s",minutes, secondsString);
+	return time;
+}
+
+
 /*
 	Use: Check if a player is really connected
 */
@@ -1294,13 +1371,13 @@ public Action Command_walkspeed(int client, int args)
 	{
 		RespondToAdminCMD(client, "Usage: sm_walkspeed <number>");
 	}
-	else if(clSpeed < walkspeed_MIN)
+	else if(clSpeed < WALKSPEED_MIN)
 	{
-		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number higher than %0.1f", walkspeed_MIN);
+		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number higher than %0.1f", WALKSPEED_MIN);
 	}
-	else if(clSpeed > walkspeed_MAX)
+	else if(clSpeed > WALKSPEED_MAX)
 	{
-		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number lower than %0.1f", walkspeed_MAX);
+		CReplyToCommand(client, "{gold}[Feedback]{default} Please pick a number lower than %0.1f", WALKSPEED_MAX);
 	}
 	else if(IsValidClient(client))
 	{
@@ -1318,7 +1395,7 @@ public Action Command_FBround_Help(int client, int args)
 {
 	if(IsValidClient(client))
 	{
-		CPrintToChat(client, "---------{gold}[Feedback Help]{default}---------\n {gold}Commands{default} : \n >fbspawn | Teleport to a list of unique spawn locations. \n >fbtellents | Print map edict count. \n >walkspeed | Set your walking speed between 200 and 512.");
+		CPrintToChat(client, "---------{gold}[Feedback Help]{default}---------\n {gold}Commands{default} : \n >fbspawn | Teleport to a list of unique spawn locations. \n >fbtellents | Print map edict count. \n >walkspeed | Set your walking speed between %i and %i.",RoundFloat(WALKSPEED_MIN), RoundFloat(WALKSPEED_MAX));
 	}
 }
 /* Debug command */
