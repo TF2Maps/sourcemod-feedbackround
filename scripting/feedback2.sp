@@ -12,6 +12,10 @@
 			fb2_timer : How long these rounds should be by default. (DEFAULT: 2 MINUTES)
 			fb2_triggertime : How long till map end should we trigger last round fb round.
 			fb2_mapcontrol : Can maps call FB rounds on last round?
+		Map Ents:
+			info_target named "TF2M_ForceLastRoundFeedback" : The maps last round will be a fb round regardless of hosts request
+			logic_relay named "TF2M_FeedbackRoundRelay" : The relay we trigger on custom maps when a fb round is activated
+		
 			
 			
 			
@@ -41,7 +45,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.15"
+#define PLUGIN_VERSION "0.0.15b"
 
 
 #include <sourcemod>
@@ -832,6 +836,14 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	{
 		//We kill the capture zones insead of just disabling them incase the capture zone has an input to re-enable.
 		AcceptEntityInput(ent,"Kill");
+	}
+	ent = -1;
+	while ((ent = FindEntityByClassname(ent, "logic_relay")) != -1)
+	{
+		decl String:entName[50];
+		GetEntPropString(ent, Prop_Data, "m_iName", entName, sizeof(entName));//Get ent name.
+		if(StrEqual(entName, "TF2M_FeedbackRoundRelay",true))//true, we care about caps.
+			AcceptEntityInput(ent,"Trigger");
 	}
 	
 	
