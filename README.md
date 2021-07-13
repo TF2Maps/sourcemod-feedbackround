@@ -46,6 +46,11 @@ Feedback round plugin developed for TF2Maps by PigPig.
 
 `sm_walkspeed <speed>`
         - Sets your walk speed during a FB Round.
-### Entities
-`TF2M_ForceLastRoundFeedback`
-        - Get if the map has an info_target with the name of 'TF2M_ForceLastRoundFeedback'.
+### Entities 
+###### These are case sensitive
+
+`(info_target) TF2M_ForceLastRoundFeedback`
+        - Maps with this entity will force their last round to be a FB round
+
+`(logic_relay) TF2M_FeedbackRoundRelay`
+        - Triggered at the beginning of FB rounds
