@@ -44,8 +44,16 @@ Feedback round plugin developed for TF2Maps by PigPig.
 `sm_fbrh`
         - Prints helpful commands to the caller.
 
+`sm_fbmedic`
+        -Prints the medic count on both teams
+
+`sm_fbdrawline`
+        -Prints the distance between the clients view and the wall they are looking at.
+
 `sm_walkspeed <speed>`
         - Sets your walk speed during a FB Round.
+        
+        
 ### Entities 
 ###### These are case sensitive
 
