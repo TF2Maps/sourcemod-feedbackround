@@ -8,6 +8,7 @@
 			sm_fb_time : 
 					>add : add time in seconds
 					>set : set time in seconds
+			sm_fb_drawline
 		Cvars:
 			fb2_timer : How long these rounds should be by default. (DEFAULT: 2 MINUTES)
 			fb2_triggertime : How long till map end should we trigger last round fb round.
@@ -22,18 +23,12 @@
 	TODOs:
 		-Look into why spawnpoints are not showing up in !fb_spawn
 		
-		-Fix 5CP midgame FB rounds running into timelimit ends.
 		-Look into having FB rounds always in tournament mode.
 		-----------------------------------------------
 		//Over engineering: 
 			Otherwise useless shit.
 		-Add Drawline command 
 			Return value to user of how long a sightline is			
-			
-		-Info_Targets mappers can place for spacific playtests
-			Read these targets and run commands.
-				ex: Force scramble after every round if an info_target is named "TF2M_FORCESCRAMBLE"
-					This is just streamlining things, last priority.
 		
 		-----------------------------------------------
 			
@@ -45,7 +40,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.15b"
+#define PLUGIN_VERSION "0.0.16"
 
 
 #include <sourcemod>
@@ -198,9 +193,10 @@ public void OnPluginStart()
 	//Round ends
 	HookEvent("teamplay_round_win", Event_Round_End, EventHookMode_Pre);
 	HookEvent("teamplay_round_stalemate", Event_Round_End, EventHookMode_Pre);
-	HookEvent("arena_win_panel", Event_Round_End, EventHookMode_Pre);//Arena mode. (oh god...)
+	//HookEvent("arena_win_panel", Event_Round_End, EventHookMode_Pre);//Arena mode. (oh god...)
 	
 	HookEvent("teamplay_round_active", Event_Teamplay_RoundActive);//When we can walk
+	HookEvent("arena_round_start", Event_Teamplay_RoundActive);//When we can walk in arena
 	
 	//Round start
 	HookEvent("teamplay_round_start", Event_Round_Start);
@@ -234,6 +230,9 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_fbspawns", Menu_SpawnTest, "Jump to a spawn point on the map.");
 	RegConsoleCmd("sm_fbrh", Command_FBround_Help, "Tellme tellme.");
 	RegConsoleCmd("sm_walkspeed", Command_walkspeed, "Change your walk speed during a fb round (HU)");
+	
+	RegConsoleCmd("sm_fbmedic",Command_Medics, "Return to any player how many medics are on either team. (Useful if you cannot see the enemy medic count and want to switch to counter theirs)");
+	RegConsoleCmd("sm_fbdrawline",Command_Drawline, "Return the length in hammer units of how long a sightline is.");
 	
 	#if defined DEBUG
 	RegConsoleCmd("sm_fbquack", Command_FBQuack, "The characteristic harsh sound made by a duck");
@@ -851,7 +850,7 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	
 	
 	/* Force respawn everyone, Under the force next round condition: Players will not spawn properly! This is a bodge to get around that xdd */
-	for(int ic = 0; ic < MaxClients; ic++)
+	for(int ic = 0; ic <= MaxClients; ic++)
 	{
 		if(IsValidClient(ic))
 		{
@@ -872,7 +871,7 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 public Action CountdownTimer(Handle timer, any serial)
 {
 	/*Hud Stuff*/
-	for(int iClient = 0; iClient < MaxClients; iClient++)
+	for(int iClient = 0; iClient <= MaxClients; iClient++)
 	{
 		if(IsValidClient(iClient))
 		{
@@ -951,7 +950,7 @@ void FeedbackTimerExpired()
 		#endif
 	}
 	//Remove conditions
-	for(int iClient = 0; iClient < MaxClients; iClient++)
+	for(int iClient = 0; iClient <= MaxClients; iClient++)
 	{
 		if(IsValidClient(iClient))
 		{
@@ -979,13 +978,16 @@ void CleanUpTimer()
 */
 void UpdateHud(client)
 {
-	if(!IsValidClient(client) || !IsPlayerAlive(client) || !ShowFeedbackRoundHud)
+
+	
+	if(!IsValidClient(client) || !IsPlayerAlive(client)|| !ShowFeedbackRoundHud)
 		return;//if they are not real or alive, dont draw for them.
 		//One thing to note is players connecting can be told to draw hud. so checking if they are alive is important.
 		//Can cause error if i remember correctly.
 	SetHudTextParams(-1.0, 0.80, 1.25, 198, 145, 65, 255); //Vsh hud location
 	ShowSyncHudText(client, feedbackHUD, "| Time left %s |", ConvertFromMicrowaveTime(FeedbackTimer));//Current time is below, Super suspect thing i wrote like 2 years ago lol.
 }
+
 public OnGameFrame()
 {
 	//Quick and dirty implementation
@@ -1368,6 +1370,65 @@ public int MenuHandler1(Menu menu, MenuAction action, int param1, int param2)
         delete menu;
     }
 }
+public Action Command_Medics(int client,int args)
+{
+	int RedMedics;
+	int BlueMedics;
+	//Find medics
+	for(int iClient = 0; iClient <= MaxClients; iClient++)
+	{
+		if(IsValidClient(iClient))
+		{
+			if(TF2_GetPlayerClass(iClient) == TFClass_Medic)
+			{
+				if(TF2_GetClientTeam(iClient) == TFTeam_Blue)
+				{
+					BlueMedics++;
+				}
+				else
+				{
+					RedMedics++;
+				}
+			}
+		}
+	}
+	
+	//Print to client.
+	if(IsValidClient(client))
+	{
+		CPrintToChat(client, "{gold}[Feedback]{default} There are: {red} %i Red medic(s) {default}| {blue}%i Blue medic(s)", RedMedics, BlueMedics);
+	}
+}
+
+public Action Command_Drawline(int client, int args)
+{
+	decl Float:eyePosistion[3];
+	decl Float:eyeAngles[3];
+	
+
+	GetClientEyePosition(client,eyePosistion);
+	GetClientEyeAngles(client, eyeAngles);
+	
+	new Handle:raycast = TR_TraceRayFilterEx(eyePosistion, eyeAngles, MASK_SHOT, RayType_Infinite, TraceEntityFilterPlayer);
+	
+	if(TR_DidHit(raycast))
+	{
+		decl Float:eyeEndPosistion[3];
+		TR_GetEndPosition(eyeEndPosistion, raycast);
+		
+		CReplyToCommand(client, "{gold}[Feedback]{default} Line distance is: %i ", RoundFloat(GetVectorDistance(eyePosistion, eyeEndPosistion, false)));
+	}
+	else
+	{
+		CReplyToCommand(client, "{gold}[Feedback]{default} ERROR!!! Line has no end!");
+	}
+	
+	CloseHandle(raycast);
+}
+public bool:TraceEntityFilterPlayer(entity, contentsMask)//Ripped from pumpkinbombs plugin.
+{
+	return entity > MaxClients || !entity;
+}
 /* Change FB round walk speed */
 public Action Command_walkspeed(int client, int args)
 {
@@ -1376,12 +1437,17 @@ public Action Command_walkspeed(int client, int args)
 		RespondToAdminCMD(client, "Usage: sm_walkspeed <number>");
 		return Plugin_Handled;
 	}
-	char arg1[32];
+	char arg1[128];
 	GetCmdArg(1, arg1, sizeof(arg1));
+	
 	float clSpeed = StringToFloat(arg1);
-	if(clSpeed == 0.0)//Error
+	if(StrEqual(arg1,"reset",false) || StrEqual(arg1,"normal",false) || StrEqual(arg1,"cancel",false) || StrEqual(arg1,"zero",false) || clSpeed == 0.0)
 	{
-		RespondToAdminCMD(client, "Usage: sm_walkspeed <number>");
+		CReplyToCommand(client, "{gold}[Feedback]{default} Reset walk speed!");
+		decl String:sCookieValue[16];
+		FloatToString(0.0, sCookieValue, sizeof(sCookieValue));
+		SetClientCookie(client,  clFbRoundWalkSpeed, sCookieValue);
+		FbRoundWalkSpeed[client] = 0.0;
 	}
 	else if(clSpeed < WALKSPEED_MIN)
 	{
