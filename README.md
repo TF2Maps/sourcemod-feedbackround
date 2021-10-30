@@ -13,6 +13,9 @@ Feedback round plugin developed for TF2Maps by PigPig.
         
  `fb2_mapcontrol` <default 1> <1/0> 
         -Can maps control when fb last round occurs?
+        
+`fb2_forceswitch` <default 1> <1/0> 
+        -If host uses !fbnextround/!fbroundnow, should we switch maps after that round is over?
 
 ## Commands:
         
@@ -23,6 +26,9 @@ Feedback round plugin developed for TF2Maps by PigPig.
 
 `sm_fbnextround`
         - Toggle if the next round will be a FB round. 1 and 0 are accepted.
+
+`sm_fbroundnow`
+        - Start a fbround ASAP.
 
 `sm_fbend`
         - Force end an FB round
