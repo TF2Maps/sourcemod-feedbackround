@@ -40,7 +40,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.16"
+#define PLUGIN_VERSION "0.0.17"
 
 
 #include <sourcemod>
@@ -136,6 +136,7 @@ enum
 	FB_CVAR_DOWNTIME_FORCEFB,
 	FB_CVAR_DOWNTIME_FORCEFB_ARENA,
 	FB_CVAR_ALLOWMAP_SETTINGS,
+	FB_CVAR_FBNEXTROUND_FORCESWITCH,
 	Version
 }
 ConVar cvarList[Version + 1];
@@ -217,6 +218,7 @@ public void OnPluginStart()
 	//Commands
 	RegAdminCmd("sm_fbround", Command_FB_Round_Enabled, ADMFLAG_KICK, "Enable or disable FB rounds [TRUE/FALSE][1/0][YES/NO]");
 	RegAdminCmd("sm_fbnextround", Command_Fb_Next_RoundToggle, ADMFLAG_KICK, "Force FB round after this round [TRUE/FALSE][1/0][YES/NO]");
+	RegAdminCmd("sm_fbroundnow", Command_Fb_Now, ADMFLAG_KICK, "Force a fb round NOW");
 	
 	
 	RegAdminCmd("sm_fbround_forceend", Command_Fb_Cancel_Round, ADMFLAG_KICK, "Enforce the death of an fb round");
@@ -231,7 +233,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_fbrh", Command_FBround_Help, "Tellme tellme.");
 	RegConsoleCmd("sm_walkspeed", Command_walkspeed, "Change your walk speed during a fb round (HU)");
 	
-	RegConsoleCmd("sm_fbmedic",Command_Medics, "Return to any player how many medics are on either team. (Useful if you cannot see the enemy medic count and want to switch to counter theirs)");
+	RegConsoleCmd("sm_fbmedic", Command_Swag, "Return the medic count of each team");
 	RegConsoleCmd("sm_fbdrawline",Command_Drawline, "Return the length in hammer units of how long a sightline is.");
 	
 	#if defined DEBUG
@@ -243,6 +245,7 @@ public void OnPluginStart()
 	cvarList[FB_CVAR_DOWNTIME_FORCEFB_ARENA] = CreateConVar("fb2_triggertime_arena", "60" , "How many seconds left should we trigger an expected map end FOR ARENA MODE", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
 	cvarList[FB_CVAR_DOWNTIME_FORCEFB] = CreateConVar("fb2_triggertime", "300" , "How many seconds left should we trigger an expected map end.", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
 	cvarList[FB_CVAR_ALLOWMAP_SETTINGS] = CreateConVar("fb2_mapcontrol", "1" , "How much control do we give maps over our plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);//false,true.
+	cvarList[FB_CVAR_FBNEXTROUND_FORCESWITCH] = CreateConVar("fb2_forceswitch", "1" , "If host uses !fbnextround, should we switch maps after that round is over?", FCVAR_NOTIFY, true, 0.0, true, 1.0);//false,true.
 	
 	//instantiate arrays
 	SpawnPointNames = new ArrayList(512);
@@ -252,7 +255,17 @@ public void OnPluginStart()
 	
 	
 	clFbRoundWalkSpeed = RegClientCookie("fb_PlayerWalkSpeed", "The players walk speed during fb rounds.", CookieAccess_Protected);
+
+	for(int iClient = 0; iClient < MaxClients + 1; iClient++)
+	{
+		if(IsValidClient(iClient))
+			SDKHook(iClient, SDKHook_OnTakeDamage, Event_OnTakeDamage);
+	}
 	
+}
+public OnClientPostAdminCheck(client)//"Called once a client is authorized and fully in-game, and after all post-connection authorizations have been performed." https://sm.alliedmods.net/new-api/clients/OnClientPostAdminCheck
+{
+	SDKHook(client, SDKHook_OnTakeDamage, Event_OnTakeDamage);
 }
 public OnConfigsExecuted()
 {
@@ -382,6 +395,19 @@ void SetPlayerFBMode(client, bool fbmode)
 		SetEntProp(client, Prop_Send, "m_CollisionGroup", COLLISION_GROUP_PLAYER);//Add back collisions
 		SetEntProp(client, Prop_Data, "m_CollisionGroup", COLLISION_GROUP_PLAYER);
 	}
+}
+public Action:Event_OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damagetype, &weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
+{
+	if(!IsTestModeActive)
+		return Plugin_Continue;
+
+	if (damagecustom == TF_CUSTOM_TELEFRAG)
+	{
+		damage = 0.0; // do no damage to telefragged client.
+		return Plugin_Changed;
+	}
+
+	return Plugin_Continue;
 }
 /*
 	Use: Force a player to respawn
@@ -719,9 +745,8 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	/* FB round setups */
 	if(IsFBRoundBlocked())
 		return;
-	FbMapOverrideListings();
+		
 	/* Warn players of imminent fb round */
-	
 	if(ForceNextRoundTest)
 	{
 		ShowFeedbackRoundHud = false;
@@ -732,7 +757,10 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	if(ForceNextRoundTest || FeedbackModeActive)		//Tell people that FB rounds are a  thing.
 	{
 		if(!IsTestModeTriggered)
+		{
 			CPrintToChatAll("\n{gold}[Feedback]{default} ~ Feedback rounds are active!");//Tell everyone about test mode.
+			FbMapOverrideListings();
+		}
 	}
 
 
@@ -740,7 +768,13 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	{
 		return;
 	}
+	StartFeedbackRound();
+
+}
+void StartFeedbackRound()
+{
 		
+	CPrintToChatAll("------------------------ \n{gold}[Feedback]{default} ~ Feedback round started: !sm_fbrh for more info\n\n {gold}>{default}You cannot kill anyone\n {gold}>{default}Leave as much feedback as possible.\n\n ------------------------");//Tell everyone about test mode.
 	//Alltalk handle
 	
 	AlltalkBuffer = GetConVarInt(FindConVar("sv_alltalk"));
@@ -752,9 +786,6 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	
 	IsTestModeActive = true;
 	CreateTimer(1.0,ResetTimeLimit);//Remove tournament
-	
-	CPrintToChatAll("------------------------ \n{gold}[Feedback]{default} ~ Feedback round started: !sm_fbrh for more info\n\n {gold}>{default}You cannot kill anyone\n {gold}>{default}Leave as much feedback as possible.\n\n ------------------------");//Tell everyone about test mode.
-	
 	
 	//Set timer
 	FeedbackTimer = cvarList[FB_CVAR_ALLOTED_TIME].IntValue;//Read the cvar and set the timer to the cvartime.
@@ -855,13 +886,22 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 		if(IsValidClient(ic))
 		{
 			TF2_RespawnPlayer(ic);
+		}
+	}
+	CreateTimer(0.2,DelayHudText_IntoText);
+	CleanUpTimer();//Incase it was already running. Clean it up before a new cycle.
+	fbTimer = CreateTimer(1.0, CountdownTimer, _, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);//DONT CARRY OVER MAP CHANGE! Oh and repeat.
+}
+public Action DelayHudText_IntoText(Handle timer, any serial)
+{
+	for(int ic = 0; ic <= MaxClients + 1; ic++)
+	{
+		if(IsValidClient(ic))
+		{
 			SetHudTextParams(-1.0, -0.5, 10.0, 255, 157, 0, 255); //Hud settings
 			ShowSyncHudText(ic, feedbackHUD, "| FEEDBACK ROUND TRIGGERED | \n > | You cannot deal damage | Leave as much feedback as possible | <");//client, channel, text
 		}
 	}
-	
-	CleanUpTimer();//Incase it was already running. Clean it up before a new cycle.
-	fbTimer = CreateTimer(1.0, CountdownTimer, _, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);//DONT CARRY OVER MAP CHANGE! Oh and repeat.
 }
 /*
 	Use: Countdown timer logic
@@ -901,7 +941,7 @@ public Action CountdownTimer(Handle timer, any serial)
 	
 	if(FeedbackTimer == 0)
 	{
-		if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || EndOfRoundFlags & FBFLAG_FORCELASTROUND)//time expired, nextmap.
+		if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || EndOfRoundFlags & FBFLAG_FORCELASTROUND || cvarList[FB_CVAR_FBNEXTROUND_FORCESWITCH].IntValue == 1)//time expired, nextmap.
 		{
 			new String:mapString[256] = "cp_dustbowl";//If no nextmap, dustbowl
 			GetNextMap(mapString, sizeof(mapString));
@@ -925,7 +965,7 @@ public Action CountdownTimer(Handle timer, any serial)
 void FeedbackTimerExpired()
 {
 	ResetAlltalk();
-	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || EndOfRoundFlags & FBFLAG_FORCELASTROUND)//load next map.
+	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || EndOfRoundFlags & FBFLAG_FORCELASTROUND || cvarList[FB_CVAR_FBNEXTROUND_FORCESWITCH].IntValue == 1)//load next map.
 	{
 		new String:mapString[256] = "cp_dustbowl";//If no nextmap, dustbowl
 		GetNextMap(mapString, sizeof(mapString));
@@ -1048,27 +1088,6 @@ public OnClientDisconnect(int client)
 	Use: Countdown timer from microwave seconds to human seconds.
 		There has to be a way to do this normally in SM. Just too lazy to look rn.
 */
-/*
-String:ConvertFromMicrowaveTime()
-{
-	int minutes = 0;
-	int seconds = FeedbackTimer;
-	
-	minutes = seconds / 60;
-	if(minutes > 0)
-		seconds -= (minutes * 60);
-		
-	new String:secondsString[32] = "Failed";
-	
-	Format(secondsString,strlen(secondsString), "0%i", seconds);
-	if(seconds >= 10)
-		Format(secondsString,strlen(secondsString), "%i", seconds);
-		
-	new String:time[512];
-	Format(time, 512, "%i:%s",minutes, secondsString);
-	return time;
-}
-*/
 String:ConvertFromMicrowaveTime(int tSeconds)
 {
 	//Get seconds
@@ -1140,6 +1159,27 @@ void RespondToAdminCMD(client, String:StringText[])
 	PrintToConsole(client, StringText);//Respond to console
 	if(IsValidClient(client))
 		CPrintToChat(client, "{gold}[Feedback]{default} | To you | %s", StringText);//Respond to ingame client
+}
+public Action:Command_Fb_Now(int client, int args)
+{
+	if(!IsTestModeActive)//FB round is not already in play.
+	{
+		LogAction(client,-1,"%N Called FB Round | result : accepted",client);
+		RespondToAdminCMD(client, "Starting FbRound ASAP!");
+		IsTestModeTriggered = true;
+		StartFeedbackRound();
+		CreateTimer(10.0, FbNowHud_TimerFix);
+		EmitSoundToAll(SOUND_HINTSOUND, _, _, SNDLEVEL_DRYER, _, SNDVOL_NORMAL, _, _, _, _, _, _); 
+	}
+	else
+	{
+		LogAction(client,-1,"%N Called FB Round | result : declined",client);
+		RespondToAdminCMD(client, "FBRound is already active, ignoring.");
+	}
+}
+public Action FbNowHud_TimerFix(Handle timer, any serial)
+{
+	ShowFeedbackRoundHud = true;
 }
 public Action:Command_Fb_Next_RoundToggle(int client, int args)
 {
@@ -1370,7 +1410,7 @@ public int MenuHandler1(Menu menu, MenuAction action, int param1, int param2)
         delete menu;
     }
 }
-public Action Command_Medics(int client,int args)
+public Action Command_Swag(int client,int args)
 {
 	int RedMedics;
 	int BlueMedics;
