@@ -40,7 +40,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.17"
+#define PLUGIN_VERSION "0.0.18c"
 
 
 #include <sourcemod>
@@ -146,6 +146,8 @@ ArrayList SpawnPointNames;
 ArrayList SpawnPointEntIDs;
 
 TFCond AppliedUber = TFCond:51;
+TFCond AppliedQuickFix = TFCond:28;
+TFCond AppliedPiss = TFCond:24;
 
 //-1 is default
 int MapTimeStorage = -1;
@@ -386,12 +388,17 @@ void SetPlayerFBMode(client, bool fbmode)
 	if(fbmode)
 	{
 		TF2_AddCondition(client, AppliedUber, 10000000000.0);//Add uber for a long time
+		TF2_AddCondition(client, AppliedQuickFix, 10000000000.0);//Add quickfix for a long time
+		TF2_AddCondition(client, AppliedPiss, 10.0);//Add piss to get rid of uber overlays
 		SetEntProp(client, Prop_Send, "m_CollisionGroup", COLLISION_GROUP_DEBRIS_TRIGGER);//Remove collisions
 		SetEntProp(client, Prop_Data, "m_CollisionGroup", COLLISION_GROUP_DEBRIS_TRIGGER);
+		TF2_RemoveCondition(client,AppliedPiss);
 	}
 	else
 	{
 		TF2_RemoveCondition(client,AppliedUber);
+		TF2_RemoveCondition(client,AppliedQuickFix);
+		TF2_RemoveCondition(client,AppliedPiss);
 		SetEntProp(client, Prop_Send, "m_CollisionGroup", COLLISION_GROUP_PLAYER);//Add back collisions
 		SetEntProp(client, Prop_Data, "m_CollisionGroup", COLLISION_GROUP_PLAYER);
 	}
