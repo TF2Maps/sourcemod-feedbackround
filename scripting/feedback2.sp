@@ -779,6 +779,8 @@ void StartFeedbackRound()
 	
 	AlltalkBuffer = GetConVarInt(FindConVar("sv_alltalk"));
 	SetCVAR_SILENT("sv_alltalk",1);
+	SetCVAR_SILENT("tf_grapplinghook_enable",1);
+	SetCVAR_SILENT("tf_powerup_mode",1);
 		
 	//Enable RTV again.
 	//It should be reset by now.
@@ -1130,7 +1132,6 @@ bool:IsValidClient(iClient)
 	  \_____\___/|_| |_| |_|_| |_| |_|\__,_|_| |_|\__,_|___/                 
 	--------------------------------------------------------------------------------
 	Description: All player commands land here   
-
 		Notes: I see no reason to comment commands
 			Because its a really good idea with how complex commands can get
 			Its just not fun to do so.
