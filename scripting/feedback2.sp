@@ -40,7 +40,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.18d"
+#define PLUGIN_VERSION "0.0.18e"
 
 
 #include <sourcemod>
@@ -398,6 +398,7 @@ void SetPlayerFBMode(client, bool fbmode)
 }
 public Action:Event_OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damagetype, &weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
 {
+
 	if(!IsTestModeActive)
 		return Plugin_Continue;
 
@@ -406,8 +407,36 @@ public Action:Event_OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &
 		damage = 0.0; // do no damage to telefragged client.
 		return Plugin_Changed;
 	}
-
+	new wepindex = (IsValidEntity(weapon) && weapon > MaxClients ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
+	switch(wepindex)
+	{
+		case 656: //Holiday Punch
+		{
+			CreateTimer(0.1, Timer_StopTickle, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+			SetNextAttack(weapon, 4.0);
+			return Plugin_Changed;
+		}
+	}
+	
 	return Plugin_Continue;
+}
+
+/*
+	Stolen from VSH
+*/
+stock SetNextAttack(weapon, Float:duration = 0.0)
+{
+    if (weapon <= MaxClients) return;
+    if (!IsValidEntity(weapon)) return;
+    new Float:next = GetGameTime() + duration;
+    SetEntPropFloat(weapon, Prop_Send, "m_flNextPrimaryAttack", next);
+    SetEntPropFloat(weapon, Prop_Send, "m_flNextSecondaryAttack", next);
+}
+public Action:Timer_StopTickle(Handle:timer, any:userid)
+{
+    new client = GetClientOfUserId(userid);
+    if (!client || !IsClientInGame(client) || !IsPlayerAlive(client)) return;
+    if (!GetEntProp(client, Prop_Send, "m_bIsReadyToHighFive") && !IsValidEntity(GetEntPropEnt(client, Prop_Send, "m_hHighFivePartner"))) TF2_RemoveCondition(client, TFCond_Taunting);
 }
 /*
 	Use: Force a player to respawn
