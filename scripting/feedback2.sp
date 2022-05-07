@@ -40,7 +40,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.18e"
+#define PLUGIN_VERSION "0.0.18f"
 
 
 #include <sourcemod>
@@ -808,8 +808,6 @@ void StartFeedbackRound()
 	
 	AlltalkBuffer = GetConVarInt(FindConVar("sv_alltalk"));
 	SetCVAR_SILENT("sv_alltalk",1);
-	SetCVAR_SILENT("tf_grapplinghook_enable",1);
-	SetCVAR_SILENT("tf_powerup_mode",1);
 		
 	//Enable RTV again.
 	//It should be reset by now.
