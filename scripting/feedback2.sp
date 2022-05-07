@@ -5,7 +5,7 @@
 			fb_round_enable : Enable or disable FB round automation [TRUE/FALSE][1/0][YES/NO]
 			sm_fb_nextround : Force FB round after this round [TRUE/FALSE][1/0][YES/NO]
 			sm_fb_round_forceend : Enforce the death of an fb round. Automatically switch to the nextmap.
-			sm_fb_time : 
+			sm_fb_time :
 					>add : add time in seconds
 					>set : set time in seconds
 			sm_fb_drawline
@@ -16,22 +16,22 @@
 		Map Ents:
 			info_target named "TF2M_ForceLastRoundFeedback" : The maps last round will be a fb round regardless of hosts request
 			logic_relay named "TF2M_FeedbackRoundRelay" : The relay we trigger on custom maps when a fb round is activated
-		
-			
-			
-			
+
+
+
+
 	TODOs:
 		-Look into why spawnpoints are not showing up in !fb_spawn
-		
+
 		-Look into having FB rounds always in tournament mode.
 		-----------------------------------------------
-		//Over engineering: 
+		//Over engineering:
 			Otherwise useless shit.
-		-Add Drawline command 
-			Return value to user of how long a sightline is			
-		
+		-Add Drawline command
+			Return value to user of how long a sightline is
+
 		-----------------------------------------------
-			
+
 */
 
 
@@ -74,16 +74,16 @@
 
 /*
 	--------------------------------------------------------------------------------
-	  _____       _ _   _       _ _          _   _             
-	 |_   _|     (_) | (_)     | (_)        | | (_)            
-	   | |  _ __  _| |_ _  __ _| |_ ______ _| |_ _  ___  _ __  
-	   | | | '_ \| | __| |/ _` | | |_  / _` | __| |/ _ \| '_ \ 
+	  _____       _ _   _       _ _          _   _
+	 |_   _|     (_) | (_)     | (_)        | | (_)
+	   | |  _ __  _| |_ _  __ _| |_ ______ _| |_ _  ___  _ __
+	   | | | '_ \| | __| |/ _` | | |_  / _` | __| |/ _ \| '_ \
 	  _| |_| | | | | |_| | (_| | | |/ / (_| | |_| | (_) | | | |
-	 |_____|_| |_|_|\__|_|\__,_|_|_/___\__,_|\__|_|\___/|_| |_|                                                                  
+	 |_____|_| |_|_|\__|_|\__,_|_|_/___\__,_|\__|_|\___/|_| |_|
 	--------------------------------------------------------------------------------
-	Description: In the beginning God created the heaven and the earth.                
+	Description: In the beginning God created the heaven and the earth.
 */
-public Plugin myinfo = 
+public Plugin myinfo =
 {
 	name = "Feedback 2.0",
 	author = PLUGIN_AUTHOR,
@@ -99,15 +99,15 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	CreateNative("FB2_ForceNextRoundTest", Native_ForceNextRoundTest);
 	CreateNative("FB2_EndMapFeedbackModeActive", Native_EndMapFeedBackModeActive);
 	CreateNative("FB2_ForceCancelRound_StartFBRound", Native_ForceCancelRoundStartFBRound);
-	CreateNative("FB2_ForceFbRoundLastRound", Native_ForceFbRoundLastRound);	
-	
+	CreateNative("FB2_ForceFbRoundLastRound", Native_ForceFbRoundLastRound);
+
 	RegPluginLibrary("feedback2");
 	return APLRes_Success;
 }
 static const String:SplashText[][] = {
 	"TF2 REQUIRES 3D GLASSES TO PLAY",
-	"Hopfully something actually changed...", 
-	"Ugh... Again??", 
+	"Hopfully something actually changed...",
+	"Ugh... Again??",
 	"Déjà vu!",
 	"Now with 15% less sugar, and 50% more salt."
 };
@@ -130,7 +130,7 @@ new Handle:fbTimer;
 int FeedbackTimer = -1; //This timer usually is -1, if not it is liekley a fb round. (Except fb rounds clock to -5)
 
 /*			CVARS			*/
-enum 
+enum
 {
 	FB_CVAR_ALLOTED_TIME,
 	FB_CVAR_DOWNTIME_FORCEFB,
@@ -162,7 +162,7 @@ enum CollisionGroup
 	COLLISION_GROUP_BREAKABLE_GLASS,
 	COLLISION_GROUP_VEHICLE,
 	COLLISION_GROUP_PLAYER_MOVEMENT,  // For HL2, same as Collision_Group_Player
-										
+
 	COLLISION_GROUP_NPC,            // Generic NPC group
 	COLLISION_GROUP_IN_VEHICLE,        // for any entity inside a vehicle
 	COLLISION_GROUP_WEAPON,            // for any weapons that need collision detection
@@ -190,70 +190,70 @@ public void OnPluginStart()
 	CPrintToChatAll("{gold}[Feedback 2.0 Loaded]{default} ~ Version %s - %s", PLUGIN_VERSION, SplashText[GetRandomInt(0,sizeof(SplashText) - 1)]);//Starting plugin
 	#endif
 	PrintToServer("[Feedback 2.0 Loaded] ~ Version %s - %s", PLUGIN_VERSION, SplashText[GetRandomInt(0,sizeof(SplashText) - 1)]);
-	
+
 	//Round ends
 	HookEvent("teamplay_round_win", Event_Round_End, EventHookMode_Pre);
 	HookEvent("teamplay_round_stalemate", Event_Round_End, EventHookMode_Pre);
 	//HookEvent("arena_win_panel", Event_Round_End, EventHookMode_Pre);//Arena mode. (oh god...)
-	
+
 	HookEvent("teamplay_round_active", Event_Teamplay_RoundActive);//When we can walk
 	HookEvent("arena_round_start", Event_Teamplay_RoundActive);//When we can walk in arena
-	
+
 	//Round start
 	HookEvent("teamplay_round_start", Event_Round_Start);
 	//Death and respawning
 	HookEvent("player_spawn", Event_Player_Spawn);
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
-	
+
 	//OnBuild
 	//TODO: Find a clean way to disable players collisions with buildings.
 	//Buildings have "SolidToPlayer" input and "m_SolidToPlayers" propdata, but they dont respond at all.
 	//HookEvent("player_builtobject", Event_Object_Built);
-	
 
-	
+
+
 	//Create hud sync
 	feedbackHUD = CreateHudSynchronizer();
-	
+
 	//Commands
 	RegAdminCmd("sm_fbround", Command_FB_Round_Enabled, ADMFLAG_KICK, "Enable or disable FB rounds [TRUE/FALSE][1/0][YES/NO]");
 	RegAdminCmd("sm_fbnextround", Command_Fb_Next_RoundToggle, ADMFLAG_KICK, "Force FB round after this round [TRUE/FALSE][1/0][YES/NO]");
 	RegAdminCmd("sm_fbroundnow", Command_Fb_Now, ADMFLAG_KICK, "Force a fb round NOW");
-	
-	
+
+
 	RegAdminCmd("sm_fbround_forceend", Command_Fb_Cancel_Round, ADMFLAG_KICK, "Enforce the death of an fb round");
 	RegAdminCmd("sm_fbend", Command_Fb_Cancel_Round, ADMFLAG_KICK, "Enforce the death of an fb round");
 	RegAdminCmd("sm_fbtimer", Command_Fb_AddTime, ADMFLAG_KICK, "<Add/Set> <Time in minutes> (ONLY CAN BE USED MID FB ROUND!!!)");
-	
-	
+
+
 	RegAdminCmd("sm_fbopenalldoors", Command_Fb_OpenDoors, ADMFLAG_KICK, "Forces all doors to unlock and open.");
 	RegConsoleCmd("sm_fbtellents", Command_ReturnEdicts,"Returns edict number.");
 	RegConsoleCmd("sm_fbspawn", Menu_SpawnTest, "Jump to a spawn point on the map.");
 	RegConsoleCmd("sm_fbspawns", Menu_SpawnTest, "Jump to a spawn point on the map.");
 	RegConsoleCmd("sm_fbrh", Command_FBround_Help, "Tellme tellme.");
 	RegConsoleCmd("sm_walkspeed", Command_walkspeed, "Change your walk speed during a fb round (HU)");
-	
+
 	RegConsoleCmd("sm_fbmedic", Command_Swag, "Return the medic count of each team");
 	RegConsoleCmd("sm_fbdrawline",Command_Drawline, "Return the length in hammer units of how long a sightline is.");
-	
+
 	#if defined DEBUG
 	RegConsoleCmd("sm_fbquack", Command_FBQuack, "The characteristic harsh sound made by a duck");
 	#endif
-	
+
 	cvarList[Version] = CreateConVar("fb2_version", PLUGIN_VERSION, "FB2 Version. DO NOT CHANGE THIS!!! READ ONLY!!!!", FCVAR_NOTIFY|FCVAR_DONTRECORD|FCVAR_CHEAT);
 	cvarList[FB_CVAR_ALLOTED_TIME] = CreateConVar("fb2_time", "120" , "How Long should the timer last? (In seconds)", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
 	cvarList[FB_CVAR_DOWNTIME_FORCEFB_ARENA] = CreateConVar("fb2_triggertime_arena", "60" , "How many seconds left should we trigger an expected map end FOR ARENA MODE", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
 	cvarList[FB_CVAR_DOWNTIME_FORCEFB] = CreateConVar("fb2_triggertime", "300" , "How many seconds left should we trigger an expected map end.", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
 	cvarList[FB_CVAR_ALLOWMAP_SETTINGS] = CreateConVar("fb2_mapcontrol", "1" , "How much control do we give maps over our plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);//false,true.
 	cvarList[FB_CVAR_FBNEXTROUND_FORCESWITCH] = CreateConVar("fb2_forceswitch", "1" , "If host uses !fbnextround, should we switch maps after that round is over?", FCVAR_NOTIFY, true, 0.0, true, 1.0);//false,true.
-	
+
 	//instantiate arrays
 	SpawnPointNames = new ArrayList(512);
 	SpawnPointEntIDs = new ArrayList(512);
-	
+
 	PopulateSpawnList();
-	
-	
+
+
 	clFbRoundWalkSpeed = RegClientCookie("fb_PlayerWalkSpeed", "The players walk speed during fb rounds.", CookieAccess_Protected);
 
 	for(int iClient = 0; iClient < MaxClients + 1; iClient++)
@@ -261,7 +261,7 @@ public void OnPluginStart()
 		if(IsValidClient(iClient))
 			SDKHook(iClient, SDKHook_OnTakeDamage, Event_OnTakeDamage);
 	}
-	
+
 }
 public OnClientPostAdminCheck(client)//"Called once a client is authorized and fully in-game, and after all post-connection authorizations have been performed." https://sm.alliedmods.net/new-api/clients/OnClientPostAdminCheck
 {
@@ -289,7 +289,7 @@ public Native_ForceFbRoundLastRound(Handle:plugin, numParams)
 		EndOfRoundFlags = EndOfRoundFlags | FBFLAG_FORCELASTROUND;//Set true
 	else
 		EndOfRoundFlags = EndOfRoundFlags &~ FBFLAG_FORCELASTROUND;//Set false
-	
+
 	return isFbRoundLastRound;
 }
 public Native_ForceNextRoundTest(Handle:plugin, numParams)
@@ -335,7 +335,7 @@ bool IsFBRoundBlocked()
 	if(IsArenaMode())
 		return true;
 		*/
-		
+
 	return false;
 }
 bool IsArenaMode()
@@ -371,12 +371,12 @@ public Action:Event_Player_Spawn(Handle:event,const String:name[],bool:dontBroad
 {
 	if(!IsTestModeActive)//If not in test mode, do nothing.
 		return;
-		
+
 	new client = GetClientOfUserId(GetEventInt(event, "userid"));
 	if(IsValidClient(client))
 	{
 		SetPlayerFBMode(client,true);
-	}	
+	}
 }
 /*
 	Use: Switch a players state in and out of FB mode.
@@ -417,7 +417,7 @@ public Action:Event_OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &
 			return Plugin_Changed;
 		}
 	}
-	
+
 	return Plugin_Continue;
 }
 
@@ -454,15 +454,15 @@ public Action:Event_PlayerDeath(Handle:event, const String:name[], bool:dontBroa
 
 	if(!IsTestModeActive)//If not test mode. Do nothing.
 	return Plugin_Continue;
-	
+
 	new client = GetClientOfUserId(GetEventInt(event, "userid"));//GetClient
-	
+
 	if (!IsValidClient(client))//They are valid past this point
-		return Plugin_Continue; 
-		
+		return Plugin_Continue;
+
 	CreateTimer(0.1,ForceRespawnPlayer, GetClientSerial(client));//We have to delay or they spawn ghosted
-	
-	return Plugin_Continue; 
+
+	return Plugin_Continue;
 }
 /*
 	Use: When someone readys a team for mp_tournament
@@ -544,7 +544,7 @@ void ClearSpawnPointsArray()
 */
 int GetMapTimeLeftInt()
 {
-	int timeleft; 
+	int timeleft;
 	GetMapTimeLeft(timeleft);
 	return timeleft;
 }
@@ -557,7 +557,7 @@ bool GetMapForceFeedbackLastRound()
 {
 	if(cvarList[FB_CVAR_ALLOWMAP_SETTINGS].IntValue <= 0)
 		return false;//Stop, we are false.
-	
+
 	new ent = -1;
 	while ((ent = FindEntityByClassname(ent, "info_target")) != -1)
 	{
@@ -597,7 +597,7 @@ public Action:Event_Round_End(Handle:event,const String:name[],bool:dontBroadcas
 		if(!FeedbackModeActive && !ForceNextRoundTest)//If FB mode is not active, and next round test is not active
 			return;
 	}
-	
+
 	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || ForceNextRoundTest)//25 seconds left or next round is a forced test.
 	{
 		CPrintToChatAll("{gold}[Feedback]{default} ~ Feedback round triggered");//Tell users in chat it has been triggered
@@ -605,9 +605,9 @@ public Action:Event_Round_End(Handle:event,const String:name[],bool:dontBroadcas
 		//Pause RTVing, Reset players RTVs
 		PauseRTV(true);
 		ResetRTV();
-		
+
 		IsTestModeTriggered = true;//Set test mode true
-		
+
 		if(GetMapTimeLeftInt() <= ReturnExpectedDowntime())//if we need to block the hit, do so.
 		{
 			SetCVAR_SILENT("mp_tournament",1);//Run config stuff
@@ -630,7 +630,7 @@ int ReturnExpectedDowntime()
 		Get pipes and destroy them.
 */
 public OnEntityCreated(entity, const String:classname[])
-{		
+{
 	if(!IsTestModeTriggered)//only run during fb round.
 		return;
 		//TODO: Test if this causes lag on fbround demos
@@ -672,10 +672,10 @@ public OnEntityDestroyed(entity)
 		{
 			//Get values
 			new Float:curVec[3];new Float:cl_location[3];new Float:JarLocation[3];
-			GetEntPropVector(entity, Prop_Send, "m_vecOrigin", JarLocation);	
+			GetEntPropVector(entity, Prop_Send, "m_vecOrigin", JarLocation);
 			GetEntPropVector(thrower, Prop_Data, "m_vecVelocity", curVec);//If we want to add to their velocity rather than set it.
 			GetClientAbsOrigin(thrower, cl_location);
-			
+
 			// 3D Distance
 			for(int axi = 0; axi < 3; axi++)
 				cl_location[axi] -= JarLocation[axi];
@@ -689,13 +689,13 @@ public OnEntityDestroyed(entity)
 
 				//Scale the vector to our desired value.
 				ScaleVector(cl_location, 600.0);
-				
+
 				if(StrEqual(classname, "tf_projectile_jar_gas",false))//make gas jumps super fat
 					ScaleVector(cl_location, 3.0);
-				
+
 				if(cl_location[2] < 280.0)//Set their y axis to up.
 					cl_location[2] = 280.0;
-				
+
 				//Add to velocity
 				for(int axi = 0; axi < 3; axi++)
 					cl_location[axi] += curVec[axi];
@@ -709,7 +709,7 @@ public OnEntityDestroyed(entity)
 	Use: Get pipe 1 tick after spawned.
 		We cannot get the owner of the pipe because valve has not set them yet.
 		So we wait.
-		
+
 		We do this implementation so players can still cannonjump, this just blocks them from knocking people around.
 */
 public void Pipe_Spawned_post(int Pipe)
@@ -730,7 +730,7 @@ public void Pipe_Spawned_post(int Pipe)
 	}
 }
 /*
-	Use: Chance a cvar silently 
+	Use: Chance a cvar silently
 */
 public SetCVAR_SILENT(String:CVAR_NAME[], int INTSET)
 {
@@ -739,7 +739,7 @@ public SetCVAR_SILENT(String:CVAR_NAME[], int INTSET)
 	flags &= ~FCVAR_NOTIFY;
 	SetConVarFlags(cvar, flags);
 	CloseHandle(cvar);
-	
+
 	SetConVarInt(FindConVar(CVAR_NAME),INTSET);
 }
 void FbMapOverrideListings()
@@ -751,7 +751,7 @@ void FbMapOverrideListings()
 	decl String:ModString[256] = "";
 	if(GetMapForceFeedbackLastRound())//If we find a end of round fb node. Add to list.
 		Format(ModString, sizeof(ModString), "%s \n {gold}>{default}End map Map FB round",ModString);
-		
+
 	Format(OverrideString, sizeof(OverrideString), "------------------------ \n{gold}[Feedback]{default} ~ Map applies these attributes: %s",ModString);
 
 	if(!StrEqual(ModString, ""))//if there are mods.
@@ -774,7 +774,7 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	/* FB round setups */
 	if(IsFBRoundBlocked())
 		return;
-		
+
 	/* Warn players of imminent fb round */
 	if(ForceNextRoundTest)
 	{
@@ -802,28 +802,29 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 }
 void StartFeedbackRound()
 {
-		
+
 	CPrintToChatAll("------------------------ \n{gold}[Feedback]{default} ~ Feedback round started: !sm_fbrh for more info\n\n {gold}>{default}You cannot kill anyone\n {gold}>{default}Leave as much feedback as possible.\n\n ------------------------");//Tell everyone about test mode.
 	//Alltalk handle
-	
+
 	AlltalkBuffer = GetConVarInt(FindConVar("sv_alltalk"));
 	SetCVAR_SILENT("sv_alltalk",1);
-		
+	SetCVAR_SILENT("tf_grapplinghook_enable",1);
+
 	//Enable RTV again.
 	//It should be reset by now.
 	PauseRTV(false);
-	
+
 	IsTestModeActive = true;
 	CreateTimer(1.0,ResetTimeLimit);//Remove tournament
-	
+
 	//Set timer
 	FeedbackTimer = cvarList[FB_CVAR_ALLOTED_TIME].IntValue;//Read the cvar and set the timer to the cvartime.
-	
+
 	/* 				Ent stuff				 */
 	//Create spawn list.
 	PopulateSpawnList();
-	
-	
+
+
 	new ent = -1;//Open all doors.
 	while ((ent = FindEntityByClassname(ent, "func_door")) != -1)
 	{
@@ -835,28 +836,28 @@ void StartFeedbackRound()
 	{
 		AcceptEntityInput(ent, "Open");
 	}
-	/*			GAMEMODE CHECKS				*/	
-	
+	/*			GAMEMODE CHECKS				*/
+
 	ent = -1;
 	while ((ent = FindEntityByClassname(ent, "tf_gamerules")) != -1)
 	{
 		/*
 			We delay by 1 second here, every one of these maps SetStalemateOnTimelimit at the start of the round, so we need to be slower.
-			
+
 		*/
-		
+
 		new String:addoutput[64];
 		Format(addoutput, 64, "OnUser1 !self:SetStalemateOnTimelimit:0.0:1:1");//On user 1, disable stalemate on map end.
 		SetVariantString(addoutput);//SM setup
 		AcceptEntityInput(ent, "AddOutput");//Sm setup of previous command
 		AcceptEntityInput(ent, "FireUser1");//Swing
 	}
-	
+
 	//Dampen respawnroom visualizers.
 	ent = -1;
 	while ((ent = FindEntityByClassname(ent, "func_respawnroomvisualizer")) != -1)
 	{
-		
+
 		SetVariantBool(false);
 		AcceptEntityInput(ent, "SetSolid");
 		/*
@@ -871,7 +872,7 @@ void StartFeedbackRound()
 		*/
 	}
 	//Allow players through enemy doors, and to trigger enemy filtered triggers.
-	
+
 	ent = -1;
 	while ((ent = FindEntityByClassname(ent, "filter_activator_tfteam")) != -1)
 	{
@@ -889,7 +890,7 @@ void StartFeedbackRound()
 		SetVariantString("0");
 		AcceptEntityInput(ent,"ShowInHUD");
 	}
-	
+
 	ent = -1;
 	while ((ent = FindEntityByClassname(ent, "trigger_capture_area")) != -1)//Kill all control points.
 	{
@@ -904,11 +905,11 @@ void StartFeedbackRound()
 		if(StrEqual(entName, "TF2M_FeedbackRoundRelay",true))//true, we care about caps.
 			AcceptEntityInput(ent,"Trigger");
 	}
-	
-	
-	
-	
-	
+
+
+
+
+
 	/* Force respawn everyone, Under the force next round condition: Players will not spawn properly! This is a bodge to get around that xdd */
 	for(int ic = 0; ic <= MaxClients; ic++)
 	{
@@ -955,19 +956,19 @@ public Action CountdownTimer(Handle timer, any serial)
 	{
 		SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
 	}
-	
+
 	/*Timer stuff*/
 	if(FeedbackTimer == 30)
 	{
 		CPrintToChatAll("{gold}[Feedback]{default} ~ 30 seconds remaining!");//Tell users time is near an end
-		EmitSoundToAll(SOUND_WARNSOUND, _, _, SNDLEVEL_DRYER, _, SNDVOL_NORMAL, _, _, _, _, _, _); 
+		EmitSoundToAll(SOUND_WARNSOUND, _, _, SNDLEVEL_DRYER, _, SNDVOL_NORMAL, _, _, _, _, _, _);
 	}
 	if(FeedbackTimer < 10 && FeedbackTimer >= 0)//Hint the last 10 seconds.
 	{
-		EmitSoundToAll(SOUND_HINTSOUND, _, _, SNDLEVEL_DRYER, _, SNDVOL_NORMAL, _, _, _, _, _, _); 
+		EmitSoundToAll(SOUND_HINTSOUND, _, _, SNDLEVEL_DRYER, _, SNDVOL_NORMAL, _, _, _, _, _, _);
 	}
-	
-	
+
+
 	if(FeedbackTimer == 0)
 	{
 		if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || EndOfRoundFlags & FBFLAG_FORCELASTROUND || cvarList[FB_CVAR_FBNEXTROUND_FORCESWITCH].IntValue == 1)//time expired, nextmap.
@@ -1048,7 +1049,7 @@ void CleanUpTimer()
 void UpdateHud(client)
 {
 
-	
+
 	if(!IsValidClient(client) || !IsPlayerAlive(client)|| !ShowFeedbackRoundHud)
 		return;//if they are not real or alive, dont draw for them.
 		//One thing to note is players connecting can be told to draw hud. so checking if they are alive is important.
@@ -1075,11 +1076,11 @@ public Action:OnPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:ang
 {
 	if(!IsTestModeActive)
 		return Plugin_Continue;
-		
+
 	if(IsValidClient(client) && buttons & IN_ATTACK2)
 	{
 		if(TF2_GetPlayerClass(client) == TFClass_Pyro)//Block them from airblasting.
-		{		
+		{
 			new ActiveItem = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
 			if(IsValidEntity(ActiveItem))
 			{
@@ -1093,7 +1094,7 @@ public Action:OnPlayerRunCmd(client, &buttons, &impulse, Float:vel[3], Float:ang
 			}
 		}
 	}
-	
+
 	return Plugin_Continue;
 }
 public OnClientCookiesCached(client)
@@ -1127,7 +1128,7 @@ String:ConvertFromMicrowaveTime(int tSeconds)
 		This is so whe don't get something like 1:1 Where there is 1 minute 1 seconds left, Instead we want to get 1:01
 	*/
 	new String:secondsString[32] = "Failed";
-	
+
 	Format(secondsString,strlen(secondsString), "0%i", seconds);
 	if(seconds >= 10)
 		Format(secondsString,strlen(secondsString), "%i", seconds);
@@ -1151,14 +1152,14 @@ bool:IsValidClient(iClient)
 }
 /*
 	--------------------------------------------------------------------------------
-	   _____                                          _     
-	  / ____|                                        | |    
-	 | |     ___  _ __ ___  _ __ ___   __ _ _ __   __| |___ 
+	   _____                                          _
+	  / ____|                                        | |
+	 | |     ___  _ __ ___  _ __ ___   __ _ _ __   __| |___
 	 | |    / _ \| '_ ` _ \| '_ ` _ \ / _` | '_ \ / _` / __|
 	 | |___| (_) | | | | | | | | | | | (_| | | | | (_| \__ \
-	  \_____\___/|_| |_| |_|_| |_| |_|\__,_|_| |_|\__,_|___/                 
+	  \_____\___/|_| |_| |_|_| |_| |_|\__,_|_| |_|\__,_|___/
 	--------------------------------------------------------------------------------
-	Description: All player commands land here   
+	Description: All player commands land here
 		Notes: I see no reason to comment commands
 			Because its a really good idea with how complex commands can get
 			Its just not fun to do so.
@@ -1197,7 +1198,7 @@ public Action:Command_Fb_Now(int client, int args)
 		IsTestModeTriggered = true;
 		StartFeedbackRound();
 		CreateTimer(10.0, FbNowHud_TimerFix);
-		EmitSoundToAll(SOUND_HINTSOUND, _, _, SNDLEVEL_DRYER, _, SNDVOL_NORMAL, _, _, _, _, _, _); 
+		EmitSoundToAll(SOUND_HINTSOUND, _, _, SNDLEVEL_DRYER, _, SNDVOL_NORMAL, _, _, _, _, _, _);
 	}
 	else
 	{
@@ -1216,7 +1217,7 @@ public Action:Command_Fb_Next_RoundToggle(int client, int args)
 	{
 		//Flip the bool.
 		ForceNextRoundTest = !ForceNextRoundTest;
-		
+
 		if(ForceNextRoundTest)//return to player
 		{
 			RespondToAdminCMD(client, "Lining up next round to be FB Round.");
@@ -1225,15 +1226,15 @@ public Action:Command_Fb_Next_RoundToggle(int client, int args)
 		{
 			RespondToAdminCMD(client, "Scrapped queued test round.");
 		}
-		
+
 		return Plugin_Handled;
 	}
-	
+
 	//Get arguement
 	char test_arg[32];
 	GetCmdArg(1, test_arg, sizeof(test_arg));
 	int output = Convert_String_True_False(test_arg);//Convert that arguement to simplify
-	
+
 	//Sourcemod auto breaks
 	switch(output)
 	{
@@ -1250,7 +1251,7 @@ public Action:Command_Fb_Next_RoundToggle(int client, int args)
 			}
 			else
 				RespondToAdminCMD(client, "Next round is already queued up to be an FB round.");
-			
+
 		}
 		case BoolValue_False:
 		{
@@ -1274,7 +1275,7 @@ public Action:Command_FB_Round_Enabled(int client, int args)
 	{
 		//Flip the bool.
 		FeedbackModeActive = !FeedbackModeActive;
-		
+
 		if(FeedbackModeActive)//return to player
 		{
 			RespondToAdminCMD(client, "Enabled! All last game rounds past this point will be fb rounds.");
@@ -1283,15 +1284,15 @@ public Action:Command_FB_Round_Enabled(int client, int args)
 		{
 			RespondToAdminCMD(client, "Disabled! All last game rounds past this point will NOT be fb rounds. Repeat will NOT be!");
 		}
-		
+
 		return Plugin_Handled;
 	}
-	
+
 	//Get arguement
 	char test_arg[32];
 	GetCmdArg(1, test_arg, sizeof(test_arg));
 	int output = Convert_String_True_False(test_arg);//Convert that arguement to simplify
-	
+
 	//Sourcemod auto breaks
 	switch(output)
 	{
@@ -1308,7 +1309,7 @@ public Action:Command_FB_Round_Enabled(int client, int args)
 			}
 			else
 				RespondToAdminCMD(client, "Last round FB rounds are already enabled.");
-			
+
 		}
 		case BoolValue_False:
 		{
@@ -1335,10 +1336,10 @@ public Action:Command_Fb_AddTime(int client, int args)
 		RespondToAdminCMD(client, "You can only use this command while an FB round is active.");
 		return Plugin_Handled;
 	}
-	
+
 	LogAction(client,-1,"%N Changed the FBRound timer.",client);
-	
-	/*		Get ARGS me m8ty		*/	
+
+	/*		Get ARGS me m8ty		*/
 	//get classification
 	char test_arg_class[32];
 	GetCmdArg(1, test_arg_class, sizeof(test_arg_class));
@@ -1364,7 +1365,7 @@ public Action:Command_Fb_AddTime(int client, int args)
 		}
 	}
 	decl String:TimeCommand[256];
-	
+
 	if(StrEqual(test_arg_class, "set",false))
 	{
 		FeedbackTimer = time;
@@ -1376,7 +1377,7 @@ public Action:Command_Fb_AddTime(int client, int args)
 		Format(TimeCommand, sizeof(TimeCommand), "Added %i minutes.", time / 60);
 	}
 	RespondToAdminCMD(client,TimeCommand);
-	
+
 	return Plugin_Handled;
 }
 public Action:Command_Fb_Cancel_Round(int client, int args)
@@ -1430,7 +1431,7 @@ public int MenuHandler1(Menu menu, MenuAction action, int param1, int param2)
 		GetEntPropVector(SpawnEntity, Prop_Send, "m_angRotation", vAng);
 
 		TeleportEntity(param1, vPos, vAng, NULL_VECTOR);
-		
+
     }
     /* If the menu has ended, destroy it */
     if (action == MenuAction_End)
@@ -1460,7 +1461,7 @@ public Action Command_Swag(int client,int args)
 			}
 		}
 	}
-	
+
 	//Print to client.
 	if(IsValidClient(client))
 	{
@@ -1472,25 +1473,25 @@ public Action Command_Drawline(int client, int args)
 {
 	decl Float:eyePosistion[3];
 	decl Float:eyeAngles[3];
-	
+
 
 	GetClientEyePosition(client,eyePosistion);
 	GetClientEyeAngles(client, eyeAngles);
-	
+
 	new Handle:raycast = TR_TraceRayFilterEx(eyePosistion, eyeAngles, MASK_SHOT, RayType_Infinite, TraceEntityFilterPlayer);
-	
+
 	if(TR_DidHit(raycast))
 	{
 		decl Float:eyeEndPosistion[3];
 		TR_GetEndPosition(eyeEndPosistion, raycast);
-		
+
 		CReplyToCommand(client, "{gold}[Feedback]{default} Line distance is: %i ", RoundFloat(GetVectorDistance(eyePosistion, eyeEndPosistion, false)));
 	}
 	else
 	{
 		CReplyToCommand(client, "{gold}[Feedback]{default} ERROR!!! Line has no end!");
 	}
-	
+
 	CloseHandle(raycast);
 }
 public bool:TraceEntityFilterPlayer(entity, contentsMask)//Ripped from pumpkinbombs plugin.
@@ -1507,7 +1508,7 @@ public Action Command_walkspeed(int client, int args)
 	}
 	char arg1[128];
 	GetCmdArg(1, arg1, sizeof(arg1));
-	
+
 	float clSpeed = StringToFloat(arg1);
 	if(StrEqual(arg1,"reset",false) || StrEqual(arg1,"normal",false) || StrEqual(arg1,"cancel",false) || StrEqual(arg1,"zero",false) || clSpeed == 0.0)
 	{
@@ -1563,7 +1564,7 @@ public Action Menu_SpawnTest(int client, int args)
 		#if defined DEBUG
 			PopulateSpawnList();
 		#endif
-		
+
 		ShowClientTPPage(client);//Load page
 	}
 	else
@@ -1574,37 +1575,37 @@ public Action Menu_SpawnTest(int client, int args)
 	return Plugin_Handled;
 }
 void ShowClientTPPage(client)
-{	
+{
 	Menu menu = new Menu(MenuHandler1);
 	menu.SetTitle("Teleport to spawnpoint :");
 	for(int ItemCount = 0;ItemCount <= GetArraySize(SpawnPointNames) - 1; ItemCount++)
-	{	
+	{
 		decl String:TextString[128] = "Oops! Looks like something went wrong.";
 		SpawnPointNames.GetString(ItemCount, TextString, sizeof(TextString));
 		decl String:InfoString[6] = "Oops!";
 		SpawnPointEntIDs.GetString(ItemCount, InfoString, sizeof(InfoString));
-		
+
 		menu.AddItem(InfoString, TextString);//INFO : TEXT
 	}
-	
+
 	menu.ExitButton = false;
 	menu.Display(client, MENU_TIME_FOREVER);
-} 
+}
 /*
 	Use: Create the spawn point array.
 */
 void PopulateSpawnList()
 {
 	ClearSpawnPointsArray();
-	
+
 	new ent = -1;
 	while ((ent = FindEntityByClassname(ent, "info_player_teamspawn")) != -1)
 	{
 		bool AddThisString = false;
-		
+
 		decl String:strName[50];
 		GetEntPropString(ent, Prop_Data, "m_iName", strName, sizeof(strName));//Get ent name.
-		
+
 		if(GetArraySize(SpawnPointNames) == 0)//We start the array.
 		{
 			AddThisString = true;
@@ -1615,13 +1616,13 @@ void PopulateSpawnList()
 			{
 				AddThisString = true;
 			}
-			
+
 		}
 		if(AddThisString)
 		{
 			if(StrEqual(strName, "",false))//if the spawn has no name, its probs a valve added debug spawn or something.
 				continue;
-				
+
 			PushArrayString(SpawnPointNames,strName);
 			//Why cant i just .tostring() :/
 			decl String:entstring[50];
