@@ -40,7 +40,7 @@
 
 /* Defines */
 #define PLUGIN_AUTHOR "PigPig"
-#define PLUGIN_VERSION "0.0.18f"
+#define PLUGIN_VERSION "0.0.18g"
 
 
 #include <sourcemod>
@@ -116,7 +116,7 @@ static const String:SplashText[][] = {
 new bool:IsTestModeTriggered = false; //IS THE INGAME TESTMODE READY TO ACTIVATE NEXT ROUND?
 new bool:IsTestModeActive = false;//When the next round starts.
 new bool:ForceNextRoundTest = false; //Next win. Enter test mode, If enough time is left, play next round normally.
-new bool:FeedbackModeActive = false;//After the last round has ended, if no time is left, enter test mode.
+new bool:FeedbackModeActive = true;//After the last round has ended, if no time is left, enter test mode.
 new bool:ForceFBRoundStarted = false;//Failsafe: Stop recalls from happening, incase sourcemod stuffs us.
 new bool:ShowFeedbackRoundHud = false;
 new EndOfRoundFlags = FBFLAG_DEFAULTVALUE;
@@ -141,6 +141,8 @@ enum
 }
 ConVar cvarList[Version + 1];
 
+ConVar cvarTVEnable;
+
 /* Forward spawn teleport arrays */
 ArrayList SpawnPointNames;
 ArrayList SpawnPointEntIDs;
@@ -150,6 +152,7 @@ TFCond AppliedUber = TFCond:51;
 //-1 is default
 int MapTimeStorage = -1;
 int AlltalkBuffer = -1;
+int GrappleBuffer = -1;
 
 enum CollisionGroup
 {
@@ -185,7 +188,6 @@ public void OnPluginStart()
 	//COMMENT OUT DEBUG AT THE TOP OF THE DOC TO AVOID THIS
 	#if defined DEBUG
 	PrintToServer("Feedback Debugmode");
-	FeedbackModeActive = true;
 	/* Inform the users. */
 	CPrintToChatAll("{gold}[Feedback 2.0 Loaded]{default} ~ Version %s - %s", PLUGIN_VERSION, SplashText[GetRandomInt(0,sizeof(SplashText) - 1)]);//Starting plugin
 	#endif
@@ -246,6 +248,8 @@ public void OnPluginStart()
 	cvarList[FB_CVAR_DOWNTIME_FORCEFB] = CreateConVar("fb2_triggertime", "300" , "How many seconds left should we trigger an expected map end.", FCVAR_NOTIFY, true, 30.0, true, 1200.0);//Min / Max (30 seconds / 20 minutes)
 	cvarList[FB_CVAR_ALLOWMAP_SETTINGS] = CreateConVar("fb2_mapcontrol", "1" , "How much control do we give maps over our plugin.", FCVAR_NOTIFY, true, 0.0, true, 1.0);//false,true.
 	cvarList[FB_CVAR_FBNEXTROUND_FORCESWITCH] = CreateConVar("fb2_forceswitch", "1" , "If host uses !fbnextround, should we switch maps after that round is over?", FCVAR_NOTIFY, true, 0.0, true, 1.0);//false,true.
+
+	cvarTVEnable = FindConVar("tv_enable");
 
 	//instantiate arrays
 	SpawnPointNames = new ArrayList(512);
@@ -514,6 +518,7 @@ public void OnMapEnd()
 	//Re-ACTIVATE RTV!!!
 	PauseRTV(false);
 	ResetAlltalk();
+	ResetGrapple();
 	EndOfRoundFlags = FBFLAG_DEFAULTVALUE;
 }
 /*
@@ -525,6 +530,17 @@ void ResetAlltalk()
 	{
 		SetCVAR_SILENT("sv_alltalk",AlltalkBuffer);
 		AlltalkBuffer = -1;
+	}
+}
+/*
+	Use: Resets grappling hook convar
+*/
+void ResetGrapple()
+{
+	if(GrappleBuffer != -1)//We found a cvar change.
+	{
+		SetCVAR_SILENT("tf_grapplinghook_enable",GrappleBuffer);
+		GrappleBuffer = -1;
 	}
 }
 /*
@@ -797,7 +813,12 @@ public Action:Event_Round_Start(Event event, const char[] name, bool dontBroadca
 	{
 		return;
 	}
-	StartFeedbackRound();
+
+	// Don't start feedback rounds twice, this messes up logic/cvars
+	if (!IsTestModeActive)
+	{
+		StartFeedbackRound();
+	}
 
 }
 void StartFeedbackRound()
@@ -807,6 +828,7 @@ void StartFeedbackRound()
 	//Alltalk handle
 
 	AlltalkBuffer = GetConVarInt(FindConVar("sv_alltalk"));
+	GrappleBuffer = GetConVarInt(FindConVar("tf_grapplinghook_enable"));
 	SetCVAR_SILENT("sv_alltalk",1);
 	SetCVAR_SILENT("tf_grapplinghook_enable",1);
 
@@ -995,6 +1017,7 @@ public Action CountdownTimer(Handle timer, any serial)
 void FeedbackTimerExpired()
 {
 	ResetAlltalk();
+	ResetGrapple();
 	if(GetMapTimeLeftInt() <= ReturnExpectedDowntime() || EndOfRoundFlags & FBFLAG_FORCELASTROUND || cvarList[FB_CVAR_FBNEXTROUND_FORCESWITCH].IntValue == 1)//load next map.
 	{
 		new String:mapString[256] = "cp_dustbowl";//If no nextmap, dustbowl
@@ -1050,10 +1073,8 @@ void UpdateHud(client)
 {
 
 
-	if(!IsValidClient(client) || !IsPlayerAlive(client)|| !ShowFeedbackRoundHud)
-		return;//if they are not real or alive, dont draw for them.
-		//One thing to note is players connecting can be told to draw hud. so checking if they are alive is important.
-		//Can cause error if i remember correctly.
+	if(!ShowFeedbackRoundHud)
+		return;
 	SetHudTextParams(-1.0, 0.80, 1.25, 198, 145, 65, 255); //Vsh hud location
 	ShowSyncHudText(client, feedbackHUD, "| Time left %s |", ConvertFromMicrowaveTime(FeedbackTimer));//Current time is below, Super suspect thing i wrote like 2 years ago lol.
 }
@@ -1104,13 +1125,20 @@ public OnClientCookiesCached(client)
 	GetClientCookie(client, clFbRoundWalkSpeed, sCookieValue, 128);
 	FbRoundWalkSpeed[client] = StringToFloat(sCookieValue);
 }
-public OnClientDisconnect(int client)
+public OnClientDisconnect_Post(int client)
 {
 	FbRoundWalkSpeed[client] = 0.0;
 
-	if(GetClientCount(false) <= 0)//False means count connecting players.
+	int iClients = GetClientCount(false); // false means count connecting players
+	if (cvarTVEnable.BoolValue)
 	{
-		FeedbackModeActive = false;
+		// Subtract SourceTV bot
+		iClients--;
+	}
+
+	if(!iClients)
+	{
+		FeedbackModeActive = true;
 		ForceNextRoundTest = false;
 	}
 }
@@ -1427,8 +1455,8 @@ public int MenuHandler1(Menu menu, MenuAction action, int param1, int param2)
 		new SpawnEntity = StringToInt(info);
 
 		float vPos[3], vAng[3];
-		GetEntPropVector(SpawnEntity, Prop_Send, "m_vecOrigin", vPos);
-		GetEntPropVector(SpawnEntity, Prop_Send, "m_angRotation", vAng);
+		GetEntPropVector(SpawnEntity, Prop_Data, "m_vecOrigin", vPos);
+		GetEntPropVector(SpawnEntity, Prop_Data, "m_angRotation", vAng);
 
 		TeleportEntity(param1, vPos, vAng, NULL_VECTOR);
 
@@ -1582,13 +1610,12 @@ void ShowClientTPPage(client)
 	{
 		decl String:TextString[128] = "Oops! Looks like something went wrong.";
 		SpawnPointNames.GetString(ItemCount, TextString, sizeof(TextString));
-		decl String:InfoString[6] = "Oops!";
+		decl String:InfoString[16] = "Oops!";
 		SpawnPointEntIDs.GetString(ItemCount, InfoString, sizeof(InfoString));
 
 		menu.AddItem(InfoString, TextString);//INFO : TEXT
 	}
 
-	menu.ExitButton = false;
 	menu.Display(client, MENU_TIME_FOREVER);
 }
 /*
